@@ -1,12 +1,12 @@
 /**
- * @file    bsp_gpio_drv.c
- * @brief   BSP GPIO 抽象层 + 中断回调注册实现
+ * @file    oop_gpio_drv.c
+ * @brief   OOP GPIO 抽象层 + 中断回调注册实现
  * @version V3.1
  * @date    2026-08-25
  */
 
-#include "bsp_gpio_drv.h"
-#include "bsp_dwt.h"
+#include "oop_gpio_drv.h"
+#include "oop_dwt.h"
 #include <string.h>
 
 /* ========== 默认操作函数 ========== */
@@ -47,12 +47,12 @@ static void default_set_mode(gpio_pin_t *pin, uint8_t mode, uint8_t pull, uint8_
     init.Alternate = alternate;
 
     switch (mode) {
-        case BSP_GPIO_MODE_OUTPUT_PP:  init.Mode = GPIO_MODE_OUTPUT_PP; break;
-        case BSP_GPIO_MODE_OUTPUT_OD:  init.Mode = GPIO_MODE_OUTPUT_OD; break;
-        case BSP_GPIO_MODE_INPUT:      init.Mode = GPIO_MODE_INPUT;     break;
-        case BSP_GPIO_MODE_AF_PP:      init.Mode = GPIO_MODE_AF_PP;     break;
-        case BSP_GPIO_MODE_AF_OD:      init.Mode = GPIO_MODE_AF_OD;     break;
-        case BSP_GPIO_MODE_ANALOG:     init.Mode = GPIO_MODE_ANALOG;    break;
+        case OOP_GPIO_MODE_OUTPUT_PP:  init.Mode = GPIO_MODE_OUTPUT_PP; break;
+        case OOP_GPIO_MODE_OUTPUT_OD:  init.Mode = GPIO_MODE_OUTPUT_OD; break;
+        case OOP_GPIO_MODE_INPUT:      init.Mode = GPIO_MODE_INPUT;     break;
+        case OOP_GPIO_MODE_AF_PP:      init.Mode = GPIO_MODE_AF_PP;     break;
+        case OOP_GPIO_MODE_AF_OD:      init.Mode = GPIO_MODE_AF_OD;     break;
+        case OOP_GPIO_MODE_ANALOG:     init.Mode = GPIO_MODE_ANALOG;    break;
         default:                       init.Mode = GPIO_MODE_INPUT;     break;
     }
 
@@ -75,29 +75,29 @@ static const gpio_ops_t g_default_ops = {
 
 /* ========== GPIO 设备 API ========== */
 
-bool bsp_gpio_init_input(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin, bool active_high)
+bool oop_gpio_init_input(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin, bool active_high)
 {
-    return bsp_gpio_init_with_mode(dev, port, pin, active_high,
-                                   BSP_GPIO_MODE_INPUT,
-                                   BSP_GPIO_PULL_UP,
-                                   BSP_GPIO_SPEED_LOW);
+    return oop_gpio_init_with_mode(dev, port, pin, active_high,
+                                   OOP_GPIO_MODE_INPUT,
+                                   OOP_GPIO_PULL_UP,
+                                   OOP_GPIO_SPEED_LOW);
 }
 
-bool bsp_gpio_init_output(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin, bool active_high)
+bool oop_gpio_init_output(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin, bool active_high)
 {
-    return bsp_gpio_init_with_mode(dev, port, pin, active_high,
-                                   BSP_GPIO_MODE_OUTPUT_PP,
-                                   BSP_GPIO_PULL_NOPULL,
-                                   BSP_GPIO_SPEED_LOW);
+    return oop_gpio_init_with_mode(dev, port, pin, active_high,
+                                   OOP_GPIO_MODE_OUTPUT_PP,
+                                   OOP_GPIO_PULL_NOPULL,
+                                   OOP_GPIO_SPEED_LOW);
 }
 
-bool bsp_gpio_init_with_mode(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin,
+bool oop_gpio_init_with_mode(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin,
                               bool active_high, uint8_t mode, uint8_t pull, uint8_t speed)
 {
-    return bsp_gpio_init_af(dev, port, pin, active_high, mode, pull, speed, 0);
+    return oop_gpio_init_af(dev, port, pin, active_high, mode, pull, speed, 0);
 }
 
-bool bsp_gpio_init_af(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin,
+bool oop_gpio_init_af(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin,
                       bool active_high, uint8_t mode, uint8_t pull, uint8_t speed, uint8_t alternate)
 {
     if (dev == NULL || port == NULL) return false;
@@ -122,47 +122,47 @@ bool bsp_gpio_init_af(gpio_dev_t *dev, GPIO_TypeDef *port, uint16_t pin,
     return true;
 }
 
-bool bsp_gpio_is_initialized(const gpio_dev_t *dev)
+bool oop_gpio_is_initialized(const gpio_dev_t *dev)
 {
     return (dev != NULL && dev->is_initialized);
 }
 
-void bsp_gpio_set_high(gpio_dev_t *dev)
+void oop_gpio_set_high(gpio_dev_t *dev)
 {
     if (dev == NULL || !dev->is_initialized) return;
     dev->ops.set_high(&dev->pin);
 }
 
-void bsp_gpio_set_low(gpio_dev_t *dev)
+void oop_gpio_set_low(gpio_dev_t *dev)
 {
     if (dev == NULL || !dev->is_initialized) return;
     dev->ops.set_low(&dev->pin);
 }
 
-void bsp_gpio_toggle(gpio_dev_t *dev)
+void oop_gpio_toggle(gpio_dev_t *dev)
 {
     if (dev == NULL || !dev->is_initialized) return;
     dev->ops.toggle(&dev->pin);
 }
 
-void bsp_gpio_write(gpio_dev_t *dev, bool state)
+void oop_gpio_write(gpio_dev_t *dev, bool state)
 {
     if (dev == NULL || !dev->is_initialized) return;
     dev->ops.write(&dev->pin, state);
 }
 
-bool bsp_gpio_read(const gpio_dev_t *dev)
+bool oop_gpio_read(const gpio_dev_t *dev)
 {
     if (dev == NULL || !dev->is_initialized) return false;
     return dev->ops.read((gpio_pin_t *)&dev->pin);  /* const 兼容 */
 }
 
-void bsp_gpio_set_mode(gpio_dev_t *dev, uint8_t mode, uint8_t pull, uint8_t speed)
+void oop_gpio_set_mode(gpio_dev_t *dev, uint8_t mode, uint8_t pull, uint8_t speed)
 {
-    bsp_gpio_set_mode_af(dev, mode, pull, speed, 0);
+    oop_gpio_set_mode_af(dev, mode, pull, speed, 0);
 }
 
-void bsp_gpio_set_mode_af(gpio_dev_t *dev, uint8_t mode, uint8_t pull, uint8_t speed, uint8_t alternate)
+void oop_gpio_set_mode_af(gpio_dev_t *dev, uint8_t mode, uint8_t pull, uint8_t speed, uint8_t alternate)
 {
     if (dev == NULL || !dev->is_initialized) return;
     dev->ops.set_mode(&dev->pin, mode, pull, speed, alternate);
@@ -193,7 +193,7 @@ static int irq_find_free_slot(void)
     return -1;
 }
 
-bool bsp_gpio_irq_register(GPIO_TypeDef *port, uint16_t pin,
+bool oop_gpio_irq_register(GPIO_TypeDef *port, uint16_t pin,
                            gpio_irq_callback_t callback, void *user_data,
                            uint8_t edge, uint32_t debounce_us, uint8_t active_level)
 {
@@ -216,13 +216,13 @@ bool bsp_gpio_irq_register(GPIO_TypeDef *port, uint16_t pin,
     reg->edge         = edge;
     reg->debounce_us  = debounce_us;
     reg->active_level = active_level;
-    reg->last_active  = bsp_GetCycleCount();
+    reg->last_active  = oop_GetCycleCount();
     reg->last_level   = (uint8_t)HAL_GPIO_ReadPin(port, pin);
 
     return true;
 }
 
-void bsp_gpio_irq_unregister(GPIO_TypeDef *port, uint16_t pin)
+void oop_gpio_irq_unregister(GPIO_TypeDef *port, uint16_t pin)
 {
     int slot = irq_find_slot(port, pin);
     if (slot < 0) return;
@@ -234,14 +234,14 @@ void bsp_gpio_irq_unregister(GPIO_TypeDef *port, uint16_t pin)
     g_irq_regs[slot].user_data  = NULL;
 }
 
-void bsp_gpio_irq_enable(GPIO_TypeDef *port, uint16_t pin, bool enable)
+void oop_gpio_irq_enable(GPIO_TypeDef *port, uint16_t pin, bool enable)
 {
     int slot = irq_find_slot(port, pin);
     if (slot < 0) return;
     g_irq_regs[slot].enabled = enable;
 }
 
-void bsp_gpio_irq_dispatch(uint16_t GPIO_Pin)
+void oop_gpio_irq_dispatch(uint16_t GPIO_Pin)
 {
     for (int i = 0; i < MAX_IRQ_REGISTERS; i++) {
         gpio_irq_reg_t *reg = &g_irq_regs[i];
@@ -255,9 +255,9 @@ void bsp_gpio_irq_dispatch(uint16_t GPIO_Pin)
         /* 边沿检测 */
         uint8_t detected = 0;
         if (last == GPIO_PIN_RESET && now == GPIO_PIN_SET) {
-            detected = BSP_GPIO_EDGE_RISING;
+            detected = OOP_GPIO_EDGE_RISING;
         } else if (last == GPIO_PIN_SET && now == GPIO_PIN_RESET) {
-            detected = BSP_GPIO_EDGE_FALLING;
+            detected = OOP_GPIO_EDGE_FALLING;
         } else {
             /* 电平未变化，更新 last_level 并跳过 */
             reg->last_level = (uint8_t)now;
@@ -271,8 +271,8 @@ void bsp_gpio_irq_dispatch(uint16_t GPIO_Pin)
 
         /* 防抖检查 */
         if (reg->debounce_us > 0) {
-            uint32_t now_cycle = bsp_GetCycleCount();
-            if (bsp_GetElapsedUS(reg->last_active, now_cycle) < reg->debounce_us) {
+            uint32_t now_cycle = oop_GetCycleCount();
+            if (oop_GetElapsedUS(reg->last_active, now_cycle) < reg->debounce_us) {
                 continue;
             }
             reg->last_active = now_cycle;

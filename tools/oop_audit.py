@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-bsp_audit.py — mystm32-sdk HAL 泄漏检查器
+oop_audit.py — mystm32-sdk HAL 泄漏检查器
 
 原则：SDK 是单源真相、板无关。任何模块都不得：
   1. 包含 CubeMX 生成的工程头（main.h / tim.h / gpio.h / usart.h /
@@ -13,8 +13,8 @@ bsp_audit.py — mystm32-sdk HAL 泄漏检查器
 具体句柄 / IO / 定时器 / 网口一律由调用方（工程 board_cfg）注入。
 
 用法：
-    python tools/bsp_audit.py            # 扫描 chip/ devices/ protocols/
-    python tools/bsp_audit.py --strict   # 非零退出码以便接入 CI
+    python tools/oop_audit.py            # 扫描 chip/ devices/ protocols/
+    python tools/oop_audit.py --strict   # 非零退出码以便接入 CI
 
 第三方中间件（middleware/、protocols/cJSON）为 vendor 代码，跳过不查。
 """

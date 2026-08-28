@@ -1,6 +1,6 @@
 /**
  * @file    ir_1838b.h
- * @brief   1838B 红外接收驱动（基于 bsp_gpio）
+ * @brief   1838B 红外接收驱动（基于 oop_gpio）
  * @version V1.0
  * @date    2026-08-25
  */
@@ -10,7 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "bsp_gpio_drv.h"
+#include "oop_gpio_drv.h"
 #include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT */
 
 #ifdef __cplusplus

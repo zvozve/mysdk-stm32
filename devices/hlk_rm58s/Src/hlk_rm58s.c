@@ -1,7 +1,7 @@
 #include "hlk_rm58s.h"
-#include "bsp_gpio_drv.h"
-#include "bsp_uart_drv.h"
-#include "bsp_dwt.h"
+#include "oop_gpio_drv.h"
+#include "oop_uart_drv.h"
+#include "oop_dwt.h"
 #include "SEGGER_RTT_Log.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -123,39 +123,39 @@ static void hlk_build_cmd(char *buf, uint16_t len, uint8_t idx, const hlk_params
  * =========================== */
 static void hlk_do_gpio_reset(hlk_drv_t *d) {
     if (d->gpio_rst == NULL) return;
-    bsp_gpio_set_low(d->gpio_rst);
+    oop_gpio_set_low(d->gpio_rst);
     DBG_LOG("HLK: RST LOW");
 }
 
 static void hlk_do_gpio_reset_high(hlk_drv_t *d) {
     if (d->gpio_rst == NULL) return;
-    bsp_gpio_set_high(d->gpio_rst);
+    oop_gpio_set_high(d->gpio_rst);
     DBG_LOG("HLK: RST HIGH");
 }
 
 static void hlk_do_gpio_enter_at_mode(hlk_drv_t *d) {
     if (d->gpio_es == NULL) return;
-    bsp_gpio_set_low(d->gpio_es);
+    oop_gpio_set_low(d->gpio_es);
     DBG_LOG("HLK: ES LOW");
 }
 
 static void hlk_do_gpio_exit_at_mode(hlk_drv_t *d) {
     if (d->gpio_es == NULL) return;
-    bsp_gpio_set_high(d->gpio_es);
+    oop_gpio_set_high(d->gpio_es);
     DBG_LOG("HLK: ES HIGH");
 }
 
 static bool hlk_gpio_read_sta(hlk_drv_t *d) {
-    return d->gpio_sts ? bsp_gpio_read(d->gpio_sts) : false;
+    return d->gpio_sts ? oop_gpio_read(d->gpio_sts) : false;
 }
 
 static bool hlk_gpio_read_sot(hlk_drv_t *d) {
-    return d->gpio_sot ? bsp_gpio_read(d->gpio_sot) : false;
+    return d->gpio_sot ? oop_gpio_read(d->gpio_sot) : false;
 }
 
 /* ===========================
  * UART 接收（拉取模型 / 方案 B）
- * 由 hlk_process() 每轮主动调用：取走 bsp_uart 已就绪的数据包，
+ * 由 hlk_process() 每轮主动调用：取走 oop_uart 已就绪的数据包，
  * 处理完后必须 release 以重启 DMA 接收 —— 这是与旧版
  * RxEventCallback 内 HLK_StartReceive() 等价的"连续接收"语义。
  * =========================== */
@@ -450,8 +450,8 @@ hlk_drv_t* hlk_create(void *gpio_es, void *gpio_rst, void *gpio_sts, void *gpio_
     if (params != NULL) d->params = *params;
     else d->params = g_default_params;
 
-    if (d->gpio_es) bsp_gpio_set_high(d->gpio_es);
-    if (d->gpio_rst) bsp_gpio_set_high(d->gpio_rst);
+    if (d->gpio_es) oop_gpio_set_high(d->gpio_es);
+    if (d->gpio_rst) oop_gpio_set_high(d->gpio_rst);
 
     /* 改用拉取模型：不注册接收回调，由 hlk_process() 主动 uart_drv_available/get/release */
     uart_drv_reg_cb(d->uart, NULL, NULL, NULL);
