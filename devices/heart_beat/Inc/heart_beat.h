@@ -10,17 +10,15 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bsp_gpio_drv.h"
-
-// 看门狗使能宏（默认关闭，在编译选项中定义 USE_IWDG=1 开启）
-#ifndef USE_IWDG
-#define USE_IWDG    0
-#endif
+#include "hal_platform.h"   /* IWDG_HandleTypeDef / HAL_IWDG_Refresh（不依赖工程 gpio.h） */
 
 /**
- * @brief   初始化心跳（自动注册默认 LED）
- * @note    使用 CPU_STA 作为默认心跳指示灯
+ * @brief   初始化心跳（注入 LED 引脚与看门狗句柄，SDK 不记录任何具体 IO/句柄）
+ * @param  led_port, led_pin  心跳指示灯 GPIO（由工程 board_cfg 注入）
+ * @param  hiwdg              独立看门狗句柄；传 NULL 表示不喂狗（由工程自行处理）
+ * @note   看门狗的 MX 初始化由工程完成，SDK 只负责在 run() 里刷新传入的句柄。
  */
-void heart_beat_init(void);
+void heart_beat_init(GPIO_TypeDef *led_port, uint16_t led_pin, IWDG_HandleTypeDef *hiwdg);
 
 /**
  * @brief   翻转心跳 LED

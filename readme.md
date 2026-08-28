@@ -10,7 +10,7 @@
 
 ## 版本
 
-- SDK 版本：**0.1.0**（初始版本，2026-08-28）
+- SDK 版本：**0.1.1**（2026-08-28）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
 - 支持的 MCU 系列：STM32G4、STM32F4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -49,6 +49,20 @@ mystm32-sdk/
 - **版本号规则**：SDK 顶层用语义化版本（如 `0.1.0`）；模块 `version` 沿用源码 `@version` 标注（Vx.y 或第三方原生版本），无标注者记为 null。
 
 ## 版本变更记录
+
+### v0.1.1 (2026-08-28) — 修复 OOP 封装泄漏 HAL
+
+- **核心约束**：SDK 不再包含任何工程生成头（`main.h` / `tim.h` / `gpio.h` / `usart.h` / `config_network.h` 等），也不再引用具体全局句柄（`&huart6` / `&htim6` / `hiwdg` / `gnetif`）或 MX 引脚宏（`XXX_GPIO_Port` / `XXX_Pin`）。
+- **具体句柄 / IO / 定时器 / 网口全部改为由调用方注入**（工程 `board_cfg` 完成绑定），SDK 仅做板无关 OOP 封装：
+  - `bsp_uart`：删除硬编码 `&huart6` 描述表，`huart` 由 `uart_drv_init()` 注入。
+  - `ir_1838b`：`IR1838B_Init(port, pin, htim)` 增加 TIM 句柄注入。
+  - `ir_tx`：新增 `ir_tx_cfg_t`，`IR_TX_Init(cfg)` 注入 GPIO/TIM/载波参数（原 PE6/TIM9/PSC/ARR 全部外提）。
+  - `heart_beat`：`heart_beat_init(led_port, led_pin, hiwdg)` 注入 LED 与看门狗句柄，删除 `MX_IWDG_Init` / `CPU_STA_*`。
+  - `lan8720a`：`ETH_RST_Init(port, pin)` 注入复位引脚。
+  - `dht11`：`DHT11_Init(port, pin)` 注入 DAT 引脚。
+  - `wol`：`send_wol(mac, netif)` / `wol_print_mac(mac)` / `wol_check_network_ready(netif)` 注入目标 MAC 与网口。
+  - `bsp_dwt`：头文件 `main.h` → `hal_platform.h`。
+- 新增 `tools/bsp_audit.py` 做 HAL 泄漏静态检查（`python tools/bsp_audit.py --strict`），回归防护。
 
 ### v0.1.0 (2026-08-28) — 初始版本
 

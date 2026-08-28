@@ -8,11 +8,12 @@
 #include "ir_1838b.h"
 #include "bsp_dwt.h"
 #include "SEGGER_RTT_Log.h"
-#include "tim.h"
+#include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT（不依赖工程 tim.h） */
 #include <string.h>
 
 /* ========== 内部变量 ========== */
 static gpio_dev_t               s_ir_dev;
+static TIM_HandleTypeDef        *s_htim = NULL;   /* 1ms 节拍定时器，由 IR1838B_Init 注入 */
 static volatile bool            s_enabled = false;
 static volatile bool            s_frame_ready = false;
 
@@ -114,12 +115,13 @@ void IR1838B_Tick1ms(void)
 
 /* ========== API 实现 ========== */
 
-bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin)
+bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
 {
-    if (port == NULL) {
-        SYS_LOG("IR1838B: Init FAIL, port=NULL");
+    if (port == NULL || htim == NULL) {
+        SYS_LOG("IR1838B: Init FAIL, port/htim=NULL");
         return false;
     }
+    s_htim = htim;
 
     memset(&s_raw, 0, sizeof(s_raw));
     s_edge_cnt        = 0;
@@ -145,13 +147,14 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin)
 
     s_enabled = true;
 
-    /* 启动 TIM6（1ms 节拍）用于静默收尾。
-     * TIM6 由 CubeMX 配置（84MHz/84/1000 = 1ms），此前无人启动，这里由驱动接管。 */
-    if (HAL_TIM_Base_Start_IT(&htim6) != HAL_OK) {
-        SYS_LOG("IR1838B: TIM6 start FAIL");
+    /* 启动注入的 TIM（1ms 节拍）用于静默收尾。
+     * TIM 由 CubeMX 配置好 1ms 参数，其更新中断里调用 IR1838B_Tick1ms；
+     * SDK 只负责启动/停止，不记录具体定时器实例。 */
+    if (HAL_TIM_Base_Start_IT(s_htim) != HAL_OK) {
+        SYS_LOG("IR1838B: TIM start FAIL");
     }
 
-    uint8_t level = (HAL_GPIO_ReadPin(port, pin) == GPIO_PIN_SET) ? 1 : 0;
+    uint8_t level = (BSP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
     SYS_LOG("IR1838B: Init OK, pin level=%u (idle should be 1)", level);
 
     return true;
@@ -160,7 +163,9 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin)
 void IR1838B_DeInit(void)
 {
     s_enabled = false;
-    HAL_TIM_Base_Stop_IT(&htim6);
+    if (s_htim != NULL) {
+        HAL_TIM_Base_Stop_IT(s_htim);
+    }
     bsp_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
     SYS_LOG("IR1838B: DeInit");
 }

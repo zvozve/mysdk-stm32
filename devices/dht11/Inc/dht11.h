@@ -10,6 +10,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "hal_platform.h"   /* GPIO_TypeDef（不依赖工程 main.h） */
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,7 +29,7 @@ typedef struct {
 
 /* ========== API ========== */
 
-void DHT11_Init(void);
+void DHT11_Init(GPIO_TypeDef *port, uint16_t pin);
 bool DHT11_Read(DHT11_Data_t *pData);
 
 #ifdef __cplusplus

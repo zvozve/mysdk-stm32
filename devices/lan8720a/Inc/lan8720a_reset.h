@@ -13,7 +13,7 @@
 extern "C" {
 #endif
 
-void ETH_RST_Init(void);
+void ETH_RST_Init(GPIO_TypeDef *port, uint16_t pin);
 void ETH_RST_Execute(void);
 
 #ifdef __cplusplus

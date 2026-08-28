@@ -7,21 +7,21 @@
   */
 /* USER CODE END Header */
 #include "lan8720a_reset.h"
-#include "main.h"
+#include "hal_platform.h"   /* GPIO_TypeDef / HAL 类型（不依赖工程 main.h） */
 #include "bsp_dwt.h"
 #include "bsp_gpio_drv.h"
 #include "SEGGER_RTT_Log.h"
 
-static gpio_dev_t eth_rst_io = {0};   /* [0]=SEL1(A) [1]=SEL2(B) */
+static gpio_dev_t eth_rst_io = {0};   /* PHY 复位引脚，端口/引脚由 ETH_RST_Init 注入 */
 
 static void lan_delay_ms(uint32_t ms)
 {
   HAL_Delay(ms);
 }
 
-void ETH_RST_Init(void)
+void ETH_RST_Init(GPIO_TypeDef *port, uint16_t pin)
 {
-  bsp_gpio_init_output(&eth_rst_io,    ETH_RST_GPIO_Port, ETH_RST_Pin, true);
+  bsp_gpio_init_output(&eth_rst_io, port, pin, true);
   ETH_RST_Execute();
 }
 

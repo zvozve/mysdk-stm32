@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "bsp_gpio_drv.h"
+#include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT */
 
 #ifdef __cplusplus
 extern "C" {
@@ -38,9 +39,12 @@ typedef bool (*ir_protocol_decoder_t)(const ir_raw_frame_t *raw, void *result);
 
 /**
  * @brief  初始化 1838B 接收
- * @param  port, pin  1838B OUT 连接的 GPIO
+ * @param  port, pin  1838B OUT 连接的 GPIO（由工程 board_cfg 注入）
+ * @param  htim       提供 1ms 节拍的 TIM 句柄（由工程注入；TIM 须在 CubeMX 配好 1ms，
+ *                    其更新中断里调用 IR1838B_Tick1ms）
+ * @note  SDK 不记录任何具体定时器/句柄，全部由调用方注入。
  */
-bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin);
+bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim);
 
 /**
  * @brief  1ms 周期节拍（由 TIM6 更新中断调用）

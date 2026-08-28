@@ -5,20 +5,13 @@
 #include "netif/ethernet.h"
 #include "SEGGER_RTT_Log.h"
 
-// Use MAC from config_network.h
-const uint8_t targetMac[6] = TARGET_PC_MAC_BYTE;
-
-// External LAN network interface (defined by LwIP/ETH init)
-extern struct netif gnetif;   // Replace with your actual LAN netif variable
-
-void wol_print_mac(void) {
+void wol_print_mac(const uint8_t mac[6]) {
     WOL_LOG("Target MAC: %02X:%02X:%02X:%02X:%02X:%02X",
-            targetMac[0], targetMac[1], targetMac[2],
-            targetMac[3], targetMac[4], targetMac[5]);
+            mac[0], mac[1], mac[2],
+            mac[3], mac[4], mac[5]);
 }
 
-bool wol_check_network_ready(void) {
-    struct netif *netif = &gnetif;
+bool wol_check_network_ready(struct netif *netif) {
     if (netif == NULL) {
         WOL_LOG("LAN interface not initialized!");
         return false;
@@ -37,19 +30,22 @@ bool wol_check_network_ready(void) {
     return true;
 }
 
-err_t send_wol(void) {
-    struct netif *netif = &gnetif;
+err_t send_wol(const uint8_t target_mac[6], struct netif *netif) {
     struct pbuf *pkt_buf;
     err_t err;
     struct eth_hdr *ethhdr;
 
-    if (!wol_check_network_ready()) {
+    if (target_mac == NULL || netif == NULL) {
+        WOL_LOG("WOL: bad args (mac/netif NULL)");
+        return ERR_ARG;
+    }
+    if (!wol_check_network_ready(netif)) {
         WOL_LOG("LAN not ready, cannot send WOL!");
         return ERR_IF;
     }
 
     WOL_LOG("Sending WOL via LAN...");
-    wol_print_mac();
+    wol_print_mac(target_mac);
 
     // Construct magic packet (102 bytes)
     uint8_t magic_data[102];

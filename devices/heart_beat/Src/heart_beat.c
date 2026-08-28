@@ -5,39 +5,33 @@
 
 #include "heart_beat.h"
 #include "SEGGER_RTT_Log.h"
-#include "gpio.h"
 
 // 单个静态心跳 LED
 static gpio_dev_t g_heart_beat_led = {0};
+static IWDG_HandleTypeDef *g_hiwdg = NULL;   /* 看门狗句柄，由 heart_beat_init 注入（NULL=不喂狗） */
 static bool g_initialized = false;
 
 /**
  * @brief   初始化心跳
  */
-void heart_beat_init(void) {
+void heart_beat_init(GPIO_TypeDef *led_port, uint16_t led_pin, IWDG_HandleTypeDef *hiwdg) {
     if (g_initialized) {
         return;
     }
-    
-    // 1. 初始化看门狗
-#if USE_IWDG
-    extern void MX_IWDG_Init(void);
-    MX_IWDG_Init();
-    SYS_LOG("IWDG initialized");
-#endif
+    if (led_port == NULL) {
+        ERR_LOG("Heartbeat init FAIL: led_port=NULL");
+        return;
+    }
+    g_hiwdg = hiwdg;   /* 看门狗的 MX 初始化由工程完成，SDK 只刷新句柄 */
 
-    // 2. 初始化 LED
-#ifdef CPU_STA_GPIO_Port
-    if (bsp_gpio_init_output(&g_heart_beat_led, CPU_STA_GPIO_Port, CPU_STA_Pin, true)) {
+    // 初始化 LED（引脚由工程注入，SDK 不记录具体 IO）
+    if (bsp_gpio_init_output(&g_heart_beat_led, led_port, led_pin, true)) {
         g_initialized = true;
-        SYS_LOG("Heartbeat initialized on CPU_STA, watchdog: %s", 
-                USE_IWDG ? "enabled" : "disabled");
+        SYS_LOG("Heartbeat initialized, watchdog: %s",
+                (hiwdg != NULL) ? "enabled" : "disabled");
     } else {
         ERR_LOG("Heartbeat initialization failed!");
     }
-#else
-    #error "CPU_STA_GPIO_Port not defined, please define a default LED"
-#endif
 }
 
 /**
@@ -50,11 +44,10 @@ void heart_beat_run(void) {
         // SYS_LOG("bsp_gpio_toggle");
     }
 
-    // 2. 喂看门狗
-#if USE_IWDG
-    extern IWDG_HandleTypeDef hiwdg;
-    HAL_IWDG_Refresh(&hiwdg);
-#endif
+    // 2. 喂看门狗（句柄由工程注入；NULL 则不喂）
+    if (g_hiwdg != NULL) {
+        HAL_IWDG_Refresh(g_hiwdg);
+    }
 }
 
 /**

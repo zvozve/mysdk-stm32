@@ -6,7 +6,6 @@
  */
 
 #include "dht11.h"
-#include "main.h"
 #include "bsp_gpio_drv.h"
 #include "bsp_dwt.h"
 #include "SEGGER_RTT_Log.h"
@@ -139,12 +138,12 @@ static bool read_raw(uint8_t *buffer)
 
 /* ========== 对外 API ========== */
 
-void DHT11_Init(void)
+void DHT11_Init(GPIO_TypeDef *port, uint16_t pin)
 {
-    /* 使用新版 BSP 初始化为开漏输出 */
+    /* 使用新版 BSP 初始化为开漏输出（端口/引脚由工程注入） */
     if (!bsp_gpio_init_with_mode(&s_dev,
-                                 DHT11_DAT_GPIO_Port,
-                                 DHT11_DAT_Pin,
+                                 port,
+                                 pin,
                                  true,                          /* active_high */
                                  BSP_GPIO_MODE_OUTPUT_OD,
                                  BSP_GPIO_PULL_NOPULL,
