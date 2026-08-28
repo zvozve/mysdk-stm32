@@ -2,7 +2,12 @@
 #define __WOL_H
 
 #include "lwip/err.h"
+#include <stdint.h>
 #include <stdbool.h>
+
+/* LwIP 网口结构：接口仅用指针传递，前向声明即可（头文件自包含，
+ * 不依赖包含方是否已引入 lwip/netif.h） */
+struct netif;
 
 #ifndef WOL_LOG_ENABLE
     #define WOL_LOG_ENABLE     1

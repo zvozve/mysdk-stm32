@@ -10,7 +10,14 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "oop_gpio_drv.h"
-#include "hal_platform.h"   /* IWDG_HandleTypeDef / HAL_IWDG_Refresh（不依赖工程 gpio.h） */
+#include "hal_platform.h"   /* GPIO_TypeDef（不依赖工程 gpio.h） */
+
+/* IWDG 模块未启用时（工程不使用看门狗），HAL 头不提供 IWDG_HandleTypeDef，
+ * 这里给出不透明前置声明，使 heart_beat_init(port, pin, NULL) 仍可编译；
+ * 模块启用时由 stm32f4xx_hal_iwdg.h 提供真实定义，此声明自动跳过。 */
+#ifndef HAL_IWDG_MODULE_ENABLED
+typedef struct __IWDG_HandleTypeDef IWDG_HandleTypeDef;
+#endif
 
 /**
  * @brief   初始化心跳（注入 LED 引脚与看门狗句柄，SDK 不记录任何具体 IO/句柄）

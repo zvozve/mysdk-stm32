@@ -45,9 +45,12 @@ void heart_beat_run(void) {
     }
 
     // 2. 喂看门狗（句柄由工程注入；NULL 则不喂）
+    /* IWDG 模块未启用时整体剔除，避免链接到不存在的 HAL_IWDG_Refresh */
+#ifdef HAL_IWDG_MODULE_ENABLED
     if (g_hiwdg != NULL) {
         HAL_IWDG_Refresh(g_hiwdg);
     }
+#endif
 }
 
 /**

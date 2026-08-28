@@ -103,7 +103,7 @@
       "updated": "2026-08-25",
       "path": "devices/dht11",
       "description": "DHT11 温湿度传感器驱动（单总线时序）。",
-      "depends": [],
+      "depends": ["chip.oop_gpio", "chip.oop_dwt", "middleware.SEGGER_RTT"],
       "backends": ["chip.oop_gpio", "chip.oop_dwt"],
       "files": [
         "devices/dht11/Inc/dht11.h",
@@ -150,7 +150,7 @@
       "updated": "2026-08-27",
       "path": "devices/ir_1838b",
       "description": "红外接收头 IR 1838B 驱动（基于定时器输入捕获）。",
-      "depends": ["chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "depends": ["chip.oop_dwt", "chip.oop_gpio", "middleware.SEGGER_RTT"],
       "backends": ["hal"],
       "files": [
         "devices/ir_1838b/Inc/ir_1838b.h",
@@ -166,7 +166,7 @@
       "updated": "2026-08-27",
       "path": "devices/ir_tx",
       "description": "红外发射驱动（PWM/载波调制）。",
-      "depends": [],
+      "depends": ["chip.platform", "chip.oop_dwt", "middleware.SEGGER_RTT"],
       "backends": ["hal"],
       "files": [
         "devices/ir_tx/Inc/ir_tx.h",
@@ -181,7 +181,7 @@
       "version": null,
       "path": "devices/lan8720a",
       "description": "LAN8720A 以太网 PHY 硬件复位（板级 glue，PHY 属板载外挂芯片；LWIP 栈留 CubeMX Middlewares）。",
-      "depends": ["chip.oop_gpio"],
+      "depends": ["chip.oop_gpio", "chip.oop_dwt", "middleware.SEGGER_RTT"],
       "backends": ["chip.oop_gpio"],
       "files": [
         "devices/lan8720a/Inc/lan8720a_reset.h",
