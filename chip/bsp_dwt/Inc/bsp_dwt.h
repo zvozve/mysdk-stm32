@@ -10,7 +10,7 @@
 #ifndef __BSP_DWT_H
 #define __BSP_DWT_H
 
-#include "main.h"
+#include "hal_platform.h"   /* STM32 系列 HAL 统一入口：提供 SystemCoreClock / HAL_Delay 等，不依赖工程 main.h */
 
 /* RTOS支持 */
 #ifdef __RTOS__

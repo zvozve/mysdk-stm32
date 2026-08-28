@@ -1,66 +1,53 @@
 #include "bsp_uart_drv.h"
-#include "usart.h"
 // #include "stm32g4xx_hal_uart_ex.h"   /* HAL_UARTEx_GetRxEventType */
 #include "SEGGER_RTT_Log.h"
 #include <string.h>
 
 // ===========================
-// 描述表
-// ===========================
-typedef struct {
-    UART_HandleTypeDef *huart;
-    const char *name;
-    uint8_t index;
-} uart_desc_t;
-
-static const uart_desc_t g_uart_desc_table[] = {
-    // {&huart1, "UART1", 1},
-    // {&huart2, "UART2", 2},
-    // {&huart3, "UART3", 3},
-    {&huart6, "UART6", 6},
-    {NULL, NULL, 0}
-};
-
-#define MAX_DRV  (sizeof(g_uart_desc_table) / sizeof(g_uart_desc_table[0]))
-
-static const uart_desc_t* uart_find_desc(UART_HandleTypeDef *huart) {
-    for (int i = 0; g_uart_desc_table[i].huart != NULL; i++) {
-        if (g_uart_desc_table[i].huart == huart) {
-            return &g_uart_desc_table[i];
-        }
-    }
-    return NULL;
-}
-
-const char* uart_drv_get_name(UART_HandleTypeDef *huart) {
-    const uart_desc_t *desc = uart_find_desc(huart);
-    return desc ? desc->name : "UNKNOWN";
-}
-
-uint8_t uart_drv_get_index(UART_HandleTypeDef *huart) {
-    const uart_desc_t *desc = uart_find_desc(huart);
-    return desc ? desc->index : 0;
-}
-
-// ===========================
 // 实例管理
+//   ★ SDK 不记录任何具体句柄/IO；huart 由上层（工程 board_cfg）注入 ★
 // ===========================
-static uart_drv_t *s_drv_table[MAX_DRV];
+#define UART_DRV_MAX_INSTANCES   8   /* UART1~UART8 全覆盖，仅容量，不绑定具体实例 */
+
+static uart_drv_t *s_drv_table[UART_DRV_MAX_INSTANCES];
 static int s_drv_count = 0;
 
 static void uart_drv_register_instance(uart_drv_t *drv) {
-    if (s_drv_count < MAX_DRV) {
+    if (s_drv_count < UART_DRV_MAX_INSTANCES) {
         s_drv_table[s_drv_count++] = drv;
     }
 }
 
 static uart_drv_t* uart_drv_find(UART_HandleTypeDef *huart) {
     for (int i = 0; i < s_drv_count; i++) {
-        if (s_drv_table[i]->huart == huart) {
+        if (s_drv_table[i] != NULL && s_drv_table[i]->huart == huart) {
             return s_drv_table[i];
         }
     }
     return NULL;
+}
+
+/* 调试用：按注册顺序返回实例标签（非硬件编号），不依赖任何具体句柄 */
+const char* uart_drv_get_name(UART_HandleTypeDef *huart) {
+    for (int i = 0; i < s_drv_count; i++) {
+        if (s_drv_table[i] != NULL && s_drv_table[i]->huart == huart) {
+            static char name[8];
+            name[0] = 'U'; name[1] = 'A'; name[2] = 'R'; name[3] = 'T';
+            name[4] = (char)('0' + (i + 1));   /* 实例序号，单数字足够 */
+            name[5] = '\0';
+            return name;
+        }
+    }
+    return "UNKNOWN";
+}
+
+uint8_t uart_drv_get_index(UART_HandleTypeDef *huart) {
+    for (int i = 0; i < s_drv_count; i++) {
+        if (s_drv_table[i] != NULL && s_drv_table[i]->huart == huart) {
+            return (uint8_t)(i + 1);
+        }
+    }
+    return 0;
 }
 
 // ===========================

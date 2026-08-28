@@ -19,40 +19,33 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "main.h"
+#include "hal_platform.h"   /* GPIO_TypeDef / TIM_TypeDef / HAL 类型（不依赖工程 main.h） */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* ========== 硬件配置（换引脚/定时器时只改这里） ========== */
-
-/* 发射引脚：PE6 = TIM9_CH2 (AF3)，紧邻 VS1838B 的 PE5 便于走线 */
-#define IR_TX_GPIO_PORT         GPIOE
-#define IR_TX_GPIO_PIN          GPIO_PIN_6
-#define IR_TX_GPIO_AF           GPIO_AF3_TIM9
-
-/* 载波定时器：TIM9 挂 APB2（定时器时钟 168MHz） */
-#define IR_TX_TIM               TIM9
-#define IR_TX_TIM_CLK_ENABLE()  __HAL_RCC_TIM9_CLK_ENABLE()
-#define IR_TX_TIM_CHANNEL       TIM_CHANNEL_2
-
-/* 载波参数（默认 168MHz 定时器时钟）：
- *   PSC = 168-1  →  计数频率 1MHz（1 tick = 1us）
- *   ARR = 26-1   →  周期 26us  ≈ 38.46kHz 载波
- *   CCR = 9      →  占空比 9/26 ≈ 34.6%（常用 1/3 附近）
- */
-#define IR_TX_TIM_PSC           (168 - 1)
-#define IR_TX_TIM_ARR           (26 - 1)
-#define IR_TX_TIM_CCR           9
+/* ========== 绑定配置（由工程 board_cfg 注入，SDK 不记录任何具体引脚/定时器） ========== */
+typedef struct {
+    GPIO_TypeDef    *gpio_port;     /* 发射引脚所在端口，如 GPIOE */
+    uint16_t         gpio_pin;      /* 发射引脚，如 GPIO_PIN_6 */
+    uint8_t          gpio_af;       /* 引脚复用功能，如 GPIO_AF3_TIM9 */
+    TIM_TypeDef     *tim_inst;      /* 载波定时器，如 TIM9 */
+    uint32_t         tim_channel;   /* PWM 通道，如 TIM_CHANNEL_2 */
+    uint32_t         tim_psc;       /* 预分频：计数频率 = TIM_CLK/(PSC+1) */
+    uint32_t         tim_arr;       /* 自动重装：周期 = (ARR+1) 计数 */
+    uint32_t         tim_ccr;       /* 比较值：占空比 = CCR/(ARR+1) */
+} ir_tx_cfg_t;
 
 /* ========== API ========== */
 
 /**
- * @brief  初始化红外发射（GPIO + TIM9 PWM，初始化后输出关闭）
+ * @brief  初始化红外发射（按注入配置初始化 GPIO + PWM，初始化后输出关闭）
+ * @param  cfg  硬件绑定配置（引脚/定时器/载波参数），由工程提供
  * @retval true 成功
+ * @note   外设时钟（GPIO/TIM）由工程 CubeMX 初始化开启，驱动不接管时钟使能。
  */
-bool IR_TX_Init(void);
+bool IR_TX_Init(const ir_tx_cfg_t *cfg);
 
 /**
  * @brief  反初始化（关闭载波，停定时器）

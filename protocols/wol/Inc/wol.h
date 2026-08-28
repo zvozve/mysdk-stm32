@@ -1,7 +1,6 @@
 #ifndef __WOL_H
 #define __WOL_H
 
-#include "config_network.h"
 #include "lwip/err.h"
 #include <stdbool.h>
 
@@ -13,19 +12,22 @@
 
 /**
  * @brief Send WOL magic packet via LAN Ethernet frame
+ * @param target_mac  目标 MAC（由工程 board_cfg 注入，不依赖 config_network.h）
+ * @param netif       局域网接口（由工程 LwIP 初始化后注入，SDK 不引用全局 gnetif）
  * @retval ERR_OK on success, others on failure
  */
-err_t send_wol(void);
+err_t send_wol(const uint8_t target_mac[6], struct netif *netif);
 
 /**
  * @brief Print target MAC address for debugging
  */
-void wol_print_mac(void);
+void wol_print_mac(const uint8_t mac[6]);
 
 /**
  * @brief Check if LAN network interface is ready
+ * @param netif  局域网接口（由工程注入）
  * @retval true if ready, false otherwise
  */
-bool wol_check_network_ready(void);
+bool wol_check_network_ready(struct netif *netif);
 
 #endif
