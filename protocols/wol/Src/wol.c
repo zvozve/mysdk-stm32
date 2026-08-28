@@ -51,7 +51,7 @@ err_t send_wol(const uint8_t target_mac[6], struct netif *netif) {
     uint8_t magic_data[102];
     memset(magic_data, 0xFF, 6);
     for (int i = 0; i < 16; i++) {
-        memcpy(&magic_data[6 + i * 6], targetMac, 6);
+        memcpy(&magic_data[6 + i * 6], target_mac, 6);
     }
 
     // Allocate pbuf with Ethernet header

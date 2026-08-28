@@ -9,6 +9,9 @@
 #ifndef __ETH_PHY_H
 #define __ETH_PHY_H
 
+#include <stdint.h>
+#include "hal_platform.h"   /* GPIO_TypeDef（头文件自包含，不依赖包含顺序） */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
