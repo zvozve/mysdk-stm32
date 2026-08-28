@@ -6,7 +6,7 @@
  */
 
 #include "ir_1838b.h"
-#include "bsp_dwt.h"
+#include "oop_dwt.h"
 #include "SEGGER_RTT_Log.h"
 #include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT（不依赖工程 tim.h） */
 #include <string.h>
@@ -40,8 +40,8 @@ static void ir_gpio_callback(uint16_t pin, void *user_data)
         return;
     }
 
-    uint32_t now   = bsp_GetCycleCount();
-    uint8_t  level = (BSP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
+    uint32_t now   = oop_GetCycleCount();
+    uint8_t  level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
 
     /* 第一个边沿：记录起始电平 */
     if (s_edge_cnt == 0 && s_last_edge_cycle == 0) {
@@ -52,7 +52,7 @@ static void ir_gpio_callback(uint16_t pin, void *user_data)
     }
 
     /* 计算时间间隔 */
-    uint32_t us = bsp_GetElapsedUS(s_last_edge_cycle, now);
+    uint32_t us = oop_GetElapsedUS(s_last_edge_cycle, now);
 
     /* 超时检测 - 帧结束 */
     if (us > (IR_FRAME_TIMEOUT_MS * 1000U)) {
@@ -91,8 +91,8 @@ void IR1838B_Tick1ms(void)
         return;
     }
 
-    uint32_t now = bsp_GetCycleCount();
-    uint32_t us  = bsp_GetElapsedUS(s_last_edge_cycle, now);
+    uint32_t now = oop_GetCycleCount();
+    uint32_t us  = oop_GetElapsedUS(s_last_edge_cycle, now);
 
     if (us <= (IR_FRAME_TIMEOUT_MS * 1000U)) {
         return;
@@ -139,8 +139,8 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
     s_ir_dev.is_initialized  = true;
 
     /* 注册中断回调（不重复配置 GPIO） */
-    if (!bsp_gpio_irq_register(port, pin, ir_gpio_callback, NULL,
-                               BSP_GPIO_EDGE_BOTH, 0, BSP_GPIO_IRQ_LEVEL_ANY)) {
+    if (!oop_gpio_irq_register(port, pin, ir_gpio_callback, NULL,
+                               OOP_GPIO_EDGE_BOTH, 0, OOP_GPIO_IRQ_LEVEL_ANY)) {
         SYS_LOG("IR1838B: IRQ register FAIL");
         return false;
     }
@@ -154,7 +154,7 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
         SYS_LOG("IR1838B: TIM start FAIL");
     }
 
-    uint8_t level = (BSP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
+    uint8_t level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
     SYS_LOG("IR1838B: Init OK, pin level=%u (idle should be 1)", level);
 
     return true;
@@ -166,14 +166,14 @@ void IR1838B_DeInit(void)
     if (s_htim != NULL) {
         HAL_TIM_Base_Stop_IT(s_htim);
     }
-    bsp_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
+    oop_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
     SYS_LOG("IR1838B: DeInit");
 }
 
 void IR1838B_Enable(bool enable)
 {
     s_enabled = enable;
-    bsp_gpio_irq_enable(s_ir_dev.pin.port, s_ir_dev.pin.pin, enable);
+    oop_gpio_irq_enable(s_ir_dev.pin.port, s_ir_dev.pin.pin, enable);
     SYS_LOG("IR1838B: %s", enable ? "Enabled" : "Disabled");
 }
 
@@ -247,7 +247,7 @@ void IR1838B_PrintStatus(void)
 {
     uint8_t level = 0;
     if (s_ir_dev.is_initialized) {
-        level = (BSP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
+        level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
     }
 
     SYS_LOG("IR1838B Status: enabled=%d, level=%u, edges=%u, ready=%d, irq=%lu, frame=%lu",

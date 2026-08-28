@@ -12,7 +12,7 @@
  *   1. 在此补充 #elif defined(STM32xxx) 分支 + include 对应系列 HAL
  *   2. 定义 HAL_PLATFORM_xxx 平台宏
  *   3. 有功能差异的代码用平台宏条件编译（当前唯一差异点：
- *      bsp_uart_drv.c 的 UART 空闲事件收帧，G4 有 HAL_UARTEx_*，
+ *      oop_uart_drv.c 的 UART 空闲事件收帧，G4 有 HAL_UARTEx_*，
  *      F4 需用 DMA 循环 + 自行空闲检测）
  * ============================================================ */
 #ifndef __HAL_PLATFORM_H__

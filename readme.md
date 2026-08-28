@@ -10,7 +10,7 @@
 
 ## 版本
 
-- SDK 版本：**0.1.1**（2026-08-28）
+- SDK 版本：**0.2.0**（2026-08-28）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
 - 支持的 MCU 系列：STM32G4、STM32F4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -19,9 +19,9 @@
 ```
 mystm32-sdk/
 ├── chip/            # MCU 内部外设 OOP 封装（板无关，基于 HAL）
-│   ├── bsp_dwt/     # DWT 延时/计时
-│   ├── bsp_gpio/    # GPIO 驱动（drv 抽象 + drv_hal 后端）
-│   ├── bsp_uart/    # 串口 DMA 驱动 + 状态机
+│   ├── oop_dwt/     # DWT 延时/计时
+│   ├── oop_gpio/    # GPIO 驱动（drv 抽象 + drv_hal 后端）
+│   ├── oop_uart/    # 串口 DMA 驱动 + 状态机
 │   └── platform/    # hal_platform.h 移植层（系列统一入口）
 ├── devices/         # 板载外挂芯片驱动（坐 chip/ 总线）
 │   ├── dht11/       # 温湿度
@@ -32,10 +32,10 @@ mystm32-sdk/
 │   └── lan8720a/    # 以太网 PHY 复位
 ├── protocols/       # 协议 / 算法库
 │   ├── ac_codec/    # 空调码编解码
-│   ├── cJSON/       # JSON 解析（第三方）
 │   ├── mqtt/        # MQTT 客户端
 │   └── wol/         # Wake-on-LAN（依赖 lwIP）
 ├── middleware/      # 第三方调试/传输库
+│   ├── cJSON/       # JSON 解析（第三方）
 │   └── SEGGER_RTT/  # 实时日志
 ├── sdk_manifest.json  # SDK 自描述（模块/依赖/版本/文件清单）
 └── readme.md
@@ -50,25 +50,39 @@ mystm32-sdk/
 
 ## 版本变更记录
 
+### v0.2.0 (2026-08-28) — bsp_* 全面更名 oop_* + 依赖规范化
+
+- **破坏性更名**：chip 层 `bsp_*` → `oop_*`（目录、文件、内部符号、宏、头文件守卫全部同步）：
+  - `chip/bsp_dwt` → `chip/oop_dwt`（`oop_dwt.h/.c`，`bsp_DelayUS` 等 → `oop_DelayUS`）
+  - `chip/bsp_gpio` → `chip/oop_gpio`（`oop_gpio_drv.h/.c/.c(_hal)`，`bsp_gpio_*` → `oop_gpio_*`，`BSP_GPIO_*` → `OOP_GPIO_*`）
+  - `chip/bsp_uart` → `chip/oop_uart`（同上规则）
+  - `tools/bsp_audit.py` → `tools/oop_audit.py`
+  - devices / protocols 中的所有调用点同步更新，全库 `bsp_` / `BSP_` token 清零。
+- **platform 重新处理**：`hal_platform.h` 注释中旧文件名引用同步为 `oop_uart_drv.c`；该头仍是全库唯一 HAL 入口（系列宏 `HAL_PLATFORM_G4/F4`）。
+- **依赖规范化（manifest 与实际 include 对齐）**：
+  - cJSON 归位 `middleware/cJSON`（第三方库入中间件层），manifest 条目 `protocols.cJSON` → `middleware.cJSON`，文件路径校验通过。
+  - `mqtt` 模块补齐依赖声明：`middleware.cJSON`（`mqtt_codec.c` include `cJSON.h`）。
+- 审计结论：devices/protocols 只 include ①自身头 ②chip 公共头（`oop_*.h` / `hal_platform.h`）③middleware 日志头 ④libc；无内部 `_hal` 后端泄漏、无 CubeMX 工程头、无跨层违规。
+
 ### v0.1.1 (2026-08-28) — 修复 OOP 封装泄漏 HAL
 
 - **核心约束**：SDK 不再包含任何工程生成头（`main.h` / `tim.h` / `gpio.h` / `usart.h` / `config_network.h` 等），也不再引用具体全局句柄（`&huart6` / `&htim6` / `hiwdg` / `gnetif`）或 MX 引脚宏（`XXX_GPIO_Port` / `XXX_Pin`）。
 - **具体句柄 / IO / 定时器 / 网口全部改为由调用方注入**（工程 `board_cfg` 完成绑定），SDK 仅做板无关 OOP 封装：
-  - `bsp_uart`：删除硬编码 `&huart6` 描述表，`huart` 由 `uart_drv_init()` 注入。
+  - `oop_uart`：删除硬编码 `&huart6` 描述表，`huart` 由 `uart_drv_init()` 注入。
   - `ir_1838b`：`IR1838B_Init(port, pin, htim)` 增加 TIM 句柄注入。
   - `ir_tx`：新增 `ir_tx_cfg_t`，`IR_TX_Init(cfg)` 注入 GPIO/TIM/载波参数（原 PE6/TIM9/PSC/ARR 全部外提）。
   - `heart_beat`：`heart_beat_init(led_port, led_pin, hiwdg)` 注入 LED 与看门狗句柄，删除 `MX_IWDG_Init` / `CPU_STA_*`。
   - `lan8720a`：`ETH_RST_Init(port, pin)` 注入复位引脚。
   - `dht11`：`DHT11_Init(port, pin)` 注入 DAT 引脚。
   - `wol`：`send_wol(mac, netif)` / `wol_print_mac(mac)` / `wol_check_network_ready(netif)` 注入目标 MAC 与网口。
-  - `bsp_dwt`：头文件 `main.h` → `hal_platform.h`。
-- 新增 `tools/bsp_audit.py` 做 HAL 泄漏静态检查（`python tools/bsp_audit.py --strict`），回归防护。
+  - `oop_dwt`：头文件 `main.h` → `hal_platform.h`。
+- 新增 `tools/oop_audit.py` 做 HAL 泄漏静态检查（`python tools/oop_audit.py --strict`），回归防护。
 
 ### v0.1.0 (2026-08-28) — 初始版本
 
 - 建立四层结构 `chip/ devices/ protocols/ middleware/`，确定层命名与 `hal_platform` 移植层。
 - 收录模块（含各自版本）：
-  - chip：bsp_dwt (V2.0)、bsp_gpio (V3.1)、bsp_uart (V3.0)、hal_platform (V1.0)
+  - chip：oop_dwt (V2.0)、oop_gpio (V3.1)、oop_uart (V3.0)、hal_platform (V1.0)
   - devices：dht11 (V3.1)、heart_beat (无标注)、hlk_rm58s (无标注)、ir_1838b (V1.2)、ir_tx (V1.0)、lan8720a (无标注)
   - protocols：ac_codec (V1.0)、cJSON (1.7.18)、mqtt (无标注)、wol (无标注)
   - middleware：SEGGER_RTT (第三方，无标注)

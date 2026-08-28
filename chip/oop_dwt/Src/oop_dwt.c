@@ -1,13 +1,13 @@
 /*
 *********************************************************************************************************
 *	模块名称 : 数据观察点与跟踪(DWT)模块
-*	文件名称 : bsp_dwt.c
+*	文件名称 : oop_dwt.c
 *	版    本 : V2.0
 *	说    明 : DWT延时实现，支持RTOS和裸机
 *********************************************************************************************************
 */
 
-#include "bsp_dwt.h"
+#include "oop_dwt.h"
 
 /* 运行状态标志 */
 static uint8_t s_dwt_inited = 0;
@@ -15,7 +15,7 @@ static uint8_t s_dwt_inited = 0;
 /* ===========================
  * 初始化
  * =========================== */
-void bsp_InitDWT(void)
+void oop_InitDWT(void)
 {
     /* 使能DWT跟踪 */
     DEM_CR |= (unsigned int)DEM_CR_TRCENA;
@@ -37,10 +37,10 @@ void bsp_InitDWT(void)
 /* ===========================
  * 核心延时函数
  * =========================== */
-void bsp_DelayUS(uint32_t us)
+void oop_DelayUS(uint32_t us)
 {
     if (!s_dwt_inited) {
-        bsp_InitDWT();
+        oop_InitDWT();
     }
     
     /* 防止溢出：最大延时限制在1秒内 */
@@ -57,12 +57,12 @@ void bsp_DelayUS(uint32_t us)
     }
 }
 
-void bsp_DelayMS(uint32_t ms)
+void oop_DelayMS(uint32_t ms)
 {
     /* 毫秒转微秒，防止溢出 */
     while (ms > 0) {
         uint32_t delay_us = (ms >= 1000) ? 1000000 : (ms * 1000);
-        bsp_DelayUS(delay_us);
+        oop_DelayUS(delay_us);
         ms -= (ms >= 1000) ? 1000 : ms;
     }
 }
@@ -70,24 +70,24 @@ void bsp_DelayMS(uint32_t ms)
 /* ===========================
  * 辅助函数
  * =========================== */
-uint32_t bsp_GetCycleCount(void)
+uint32_t oop_GetCycleCount(void)
 {
     if (!s_dwt_inited) {
-        bsp_InitDWT();
+        oop_InitDWT();
     }
     return DWT_CYCCNT;
 }
 
-uint32_t bsp_GetElapsedUS(uint32_t start, uint32_t end)
+uint32_t oop_GetElapsedUS(uint32_t start, uint32_t end)
 {
     uint32_t diff = end - start;  /* 处理32位回绕 */
     return diff / (SystemCoreClock / 1000000);
 }
 
-uint8_t bsp_IsTimeout(uint32_t start, uint32_t us)
+uint8_t oop_IsTimeout(uint32_t start, uint32_t us)
 {
-    uint32_t now = bsp_GetCycleCount();
-    uint32_t elapsed_us = bsp_GetElapsedUS(start, now);
+    uint32_t now = oop_GetCycleCount();
+    uint32_t elapsed_us = oop_GetElapsedUS(start, now);
     return (elapsed_us >= us) ? 1 : 0;
 }
 
@@ -105,5 +105,5 @@ void HAL_Delay(uint32_t Delay)
 #endif
     
     /* 裸机模式或RTOS未启动：使用DWT阻塞延时 */
-    bsp_DelayMS(Delay);
+    oop_DelayMS(Delay);
 }

@@ -25,7 +25,7 @@ void heart_beat_init(GPIO_TypeDef *led_port, uint16_t led_pin, IWDG_HandleTypeDe
     g_hiwdg = hiwdg;   /* 看门狗的 MX 初始化由工程完成，SDK 只刷新句柄 */
 
     // 初始化 LED（引脚由工程注入，SDK 不记录具体 IO）
-    if (bsp_gpio_init_output(&g_heart_beat_led, led_port, led_pin, true)) {
+    if (oop_gpio_init_output(&g_heart_beat_led, led_port, led_pin, true)) {
         g_initialized = true;
         SYS_LOG("Heartbeat initialized, watchdog: %s",
                 (hiwdg != NULL) ? "enabled" : "disabled");
@@ -40,8 +40,8 @@ void heart_beat_init(GPIO_TypeDef *led_port, uint16_t led_pin, IWDG_HandleTypeDe
 void heart_beat_run(void) {
     // 1. 翻转 LED
     if (g_initialized) {
-        bsp_gpio_toggle(&g_heart_beat_led);
-        // SYS_LOG("bsp_gpio_toggle");
+        oop_gpio_toggle(&g_heart_beat_led);
+        // SYS_LOG("oop_gpio_toggle");
     }
 
     // 2. 喂看门狗（句柄由工程注入；NULL 则不喂）

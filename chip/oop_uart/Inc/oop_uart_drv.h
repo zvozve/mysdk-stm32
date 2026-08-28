@@ -1,5 +1,5 @@
 /**
- * @file    bsp_uart_drv.h
+ * @file    oop_uart_drv.h
  * @brief   通用串口DMA驱动 - 状态机管理
  * @version V3.0
  * @date    2026-08-04

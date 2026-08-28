@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.1.1",
+    "version": "0.2.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "repo": "C:/Container/Applications/Dev_STM32/mystm32-sdk",
@@ -32,52 +32,52 @@
   },
   "modules": [
     {
-      "id": "chip.bsp_dwt",
-      "name": "bsp_dwt",
+      "id": "chip.oop_dwt",
+      "name": "oop_dwt",
       "layer": "chip",
       "category": "timing",
       "version": "V2.0",
-      "path": "chip/bsp_dwt",
+      "path": "chip/oop_dwt",
       "description": "DWT 数据观察点与跟踪：延时/计时模块，支持 RTOS 与裸机。",
       "depends": [],
       "backends": ["hal"],
       "files": [
-        "chip/bsp_dwt/Inc/bsp_dwt.h",
-        "chip/bsp_dwt/Src/bsp_dwt.c"
+        "chip/oop_dwt/Inc/oop_dwt.h",
+        "chip/oop_dwt/Src/oop_dwt.c"
       ]
     },
     {
-      "id": "chip.bsp_gpio",
-      "name": "bsp_gpio",
+      "id": "chip.oop_gpio",
+      "name": "oop_gpio",
       "layer": "chip",
       "category": "gpio",
       "version": "V3.1",
       "updated": "2026-08-25",
-      "path": "chip/bsp_gpio",
+      "path": "chip/oop_gpio",
       "description": "GPIO OOP 驱动（drv 抽象 + drv_hal HAL 后端），上层注入句柄。",
       "depends": ["chip.platform"],
       "backends": ["hal"],
       "files": [
-        "chip/bsp_gpio/Inc/bsp_gpio_drv.h",
-        "chip/bsp_gpio/Src/bsp_gpio_drv.c",
-        "chip/bsp_gpio/Src/bsp_gpio_drv_hal.c"
+        "chip/oop_gpio/Inc/oop_gpio_drv.h",
+        "chip/oop_gpio/Src/oop_gpio_drv.c",
+        "chip/oop_gpio/Src/oop_gpio_drv_hal.c"
       ]
     },
     {
-      "id": "chip.bsp_uart",
-      "name": "bsp_uart",
+      "id": "chip.oop_uart",
+      "name": "oop_uart",
       "layer": "chip",
       "category": "uart",
       "version": "V3.0",
       "updated": "2026-08-04",
-      "path": "chip/bsp_uart",
+      "path": "chip/oop_uart",
       "description": "通用串口 DMA 驱动 + 状态机（IDLE/TX_BUSY/DATA_READY/ERROR），支持 RS485 使能脚注入、运行时波特率重配、UART1~UART8 描述表。",
       "depends": ["chip.platform"],
       "backends": ["hal"],
       "files": [
-        "chip/bsp_uart/Inc/bsp_uart_drv.h",
-        "chip/bsp_uart/Src/bsp_uart_drv.c",
-        "chip/bsp_uart/Src/bsp_uart_drv_hal.c"
+        "chip/oop_uart/Inc/oop_uart_drv.h",
+        "chip/oop_uart/Src/oop_uart_drv.c",
+        "chip/oop_uart/Src/oop_uart_drv_hal.c"
       ]
     },
     {
@@ -104,7 +104,7 @@
       "path": "devices/dht11",
       "description": "DHT11 温湿度传感器驱动（单总线时序）。",
       "depends": [],
-      "backends": ["chip.bsp_gpio", "chip.bsp_dwt"],
+      "backends": ["chip.oop_gpio", "chip.oop_dwt"],
       "files": [
         "devices/dht11/Inc/dht11.h",
         "devices/dht11/Src/dht11.c"
@@ -118,8 +118,8 @@
       "version": null,
       "path": "devices/heart_beat",
       "description": "心跳模块（极简版）：自动注册一个 LED，APP 只调 toggle（IO 翻转 + 喂狗逻辑由组件负责）。",
-      "depends": ["chip.bsp_gpio", "middleware.SEGGER_RTT"],
-      "backends": ["chip.bsp_gpio"],
+      "depends": ["chip.oop_gpio", "middleware.SEGGER_RTT"],
+      "backends": ["chip.oop_gpio"],
       "files": [
         "devices/heart_beat/Inc/heart_beat.h",
         "devices/heart_beat/Src/heart_beat.c"
@@ -133,8 +133,8 @@
       "version": null,
       "path": "devices/hlk_rm58s",
       "description": "HLK-RM58S WiFi 模块 AT 命令驱动（连接/ MQTT 透传）。",
-      "depends": ["chip.bsp_dwt", "chip.bsp_gpio", "chip.bsp_uart"],
-      "backends": ["chip.bsp_uart"],
+      "depends": ["chip.oop_dwt", "chip.oop_gpio", "chip.oop_uart"],
+      "backends": ["chip.oop_uart"],
       "files": [
         "devices/hlk_rm58s/Inc/hlk_rm58s.h",
         "devices/hlk_rm58s/Inc/hlk_rm58s_cmd.h",
@@ -150,7 +150,7 @@
       "updated": "2026-08-27",
       "path": "devices/ir_1838b",
       "description": "红外接收头 IR 1838B 驱动（基于定时器输入捕获）。",
-      "depends": ["chip.bsp_dwt", "middleware.SEGGER_RTT"],
+      "depends": ["chip.oop_dwt", "middleware.SEGGER_RTT"],
       "backends": ["hal"],
       "files": [
         "devices/ir_1838b/Inc/ir_1838b.h",
@@ -181,8 +181,8 @@
       "version": null,
       "path": "devices/lan8720a",
       "description": "LAN8720A 以太网 PHY 硬件复位（板级 glue，PHY 属板载外挂芯片；LWIP 栈留 CubeMX Middlewares）。",
-      "depends": ["chip.bsp_gpio"],
-      "backends": ["chip.bsp_gpio"],
+      "depends": ["chip.oop_gpio"],
+      "backends": ["chip.oop_gpio"],
       "files": [
         "devices/lan8720a/Inc/lan8720a_reset.h",
         "devices/lan8720a/Src/lan8720a_reset.c"
@@ -225,19 +225,19 @@
       ]
     },
     {
-      "id": "protocols.cJSON",
+      "id": "middleware.cJSON",
       "name": "cJSON",
-      "layer": "protocols",
+      "layer": "middleware",
       "category": "json",
       "version": "1.7.18",
       "thirdParty": true,
-      "path": "protocols/cJSON",
-      "description": "cJSON 轻量 JSON 解析/构造库（第三方，协议层复用）。",
+      "path": "middleware/cJSON",
+      "description": "cJSON 轻量 JSON 解析/构造库（第三方中间件，供协议层复用）。",
       "depends": [],
       "backends": [],
       "files": [
-        "protocols/cJSON/Inc/cJSON.h",
-        "protocols/cJSON/Src/cJSON.c"
+        "middleware/cJSON/Inc/cJSON.h",
+        "middleware/cJSON/Src/cJSON.c"
       ]
     },
     {
@@ -248,7 +248,7 @@
       "version": null,
       "path": "protocols/mqtt",
       "description": "MQTT 客户端（codec + client，纯 TCP 1883，依赖传输层注入）。",
-      "depends": ["middleware.SEGGER_RTT"],
+      "depends": ["middleware.SEGGER_RTT", "middleware.cJSON"],
       "backends": ["net"],
       "files": [
         "protocols/mqtt/Inc/mqtt_client.h",
@@ -274,9 +274,9 @@
     }
   ],
   "notes": [
-    "middleware/cJSON 目前为空占位目录；真实 cJSON 已落在 protocols/cJSON，建议后续删除空占位避免歧义。",
+    "cJSON 已归位 middleware/cJSON（第三方库），manifest 条目同步更正为 middleware.cJSON。",
     "wol 依赖 lwIP（lwip/err.h），属 CubeMX Middlewares，不入本 SDK，由项目侧提供 netif 与目标 MAC。",
-    "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/bsp_audit.py。",
+    "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/oop_audit.py。",
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 User/mystm32-sdk/，绑定（devicetree 类）在工程侧完成。"
   ]

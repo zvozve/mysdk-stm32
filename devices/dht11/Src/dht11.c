@@ -1,13 +1,13 @@
 /**
  * @file    dht11.c
- * @brief   DHT11 温湿度传感器驱动（适配 BSP GPIO V3.1）
+ * @brief   DHT11 温湿度传感器驱动（适配 OOP GPIO V3.1）
  * @version V3.1
  * @date    2026-08-25
  */
 
 #include "dht11.h"
-#include "bsp_gpio_drv.h"
-#include "bsp_dwt.h"
+#include "oop_gpio_drv.h"
+#include "oop_dwt.h"
 #include "SEGGER_RTT_Log.h"
 #include <string.h>
 
@@ -22,10 +22,10 @@ static gpio_dev_t s_dev = {0};
  */
 static inline void set_output(void)
 {
-    bsp_gpio_set_mode(&s_dev,
-                      BSP_GPIO_MODE_OUTPUT_OD,
-                      BSP_GPIO_PULL_NOPULL,
-                      BSP_GPIO_SPEED_HIGH);
+    oop_gpio_set_mode(&s_dev,
+                      OOP_GPIO_MODE_OUTPUT_OD,
+                      OOP_GPIO_PULL_NOPULL,
+                      OOP_GPIO_SPEED_HIGH);
 }
 
 /**
@@ -33,10 +33,10 @@ static inline void set_output(void)
  */
 static inline void set_input(void)
 {
-    bsp_gpio_set_mode(&s_dev,
-                      BSP_GPIO_MODE_INPUT,
-                      BSP_GPIO_PULL_UP,
-                      BSP_GPIO_SPEED_LOW);
+    oop_gpio_set_mode(&s_dev,
+                      OOP_GPIO_MODE_INPUT,
+                      OOP_GPIO_PULL_UP,
+                      OOP_GPIO_SPEED_LOW);
 }
 
 /**
@@ -49,30 +49,30 @@ static uint8_t read_bit(void)
     uint32_t high_us;
 
     /* 等待低电平开始（DHT11 拉低约 50us） */
-    start = bsp_GetCycleCount();
-    while (BSP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
-        if (bsp_GetElapsedUS(start, bsp_GetCycleCount()) > 100) {
+    start = oop_GetCycleCount();
+    while (OOP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
+        if (oop_GetElapsedUS(start, oop_GetCycleCount()) > 100) {
             return 0xFF;
         }
     }
 
     /* 等待高电平开始（DHT11 释放） */
-    start = bsp_GetCycleCount();
-    while (BSP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_RESET) {
-        if (bsp_GetElapsedUS(start, bsp_GetCycleCount()) > 100) {
+    start = oop_GetCycleCount();
+    while (OOP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_RESET) {
+        if (oop_GetElapsedUS(start, oop_GetCycleCount()) > 100) {
             return 0xFF;
         }
     }
 
     /* 测量高电平持续时间 */
-    start = bsp_GetCycleCount();
-    while (BSP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
-        if (bsp_GetElapsedUS(start, bsp_GetCycleCount()) > 100) {
+    start = oop_GetCycleCount();
+    while (OOP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
+        if (oop_GetElapsedUS(start, oop_GetCycleCount()) > 100) {
             break;
         }
     }
 
-    high_us = bsp_GetElapsedUS(start, bsp_GetCycleCount());
+    high_us = oop_GetElapsedUS(start, oop_GetCycleCount());
 
     /* DHT11: 26~28us → 0，70us → 1 */
     return (high_us > 40) ? 1 : 0;
@@ -89,11 +89,11 @@ static bool read_raw(uint8_t *buffer)
 
     /* 1. 发送启动信号（不关中断，20ms 可以接受被打断） */
     set_output();
-    BSP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_RESET);
-    bsp_DelayUS(20000);                     // 20ms 低电平，开中断状态
+    OOP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_RESET);
+    oop_DelayUS(20000);                     // 20ms 低电平，开中断状态
 
-    BSP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_SET);
-    bsp_DelayUS(30);
+    OOP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_SET);
+    oop_DelayUS(30);
 
     set_input();
 
@@ -101,9 +101,9 @@ static bool read_raw(uint8_t *buffer)
     __disable_irq();
 
     // 等待 DHT11 拉低（约 80us）
-    start = bsp_GetCycleCount();
-    while (BSP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
-        if (bsp_GetElapsedUS(start, bsp_GetCycleCount()) > 100) {
+    start = oop_GetCycleCount();
+    while (OOP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_SET) {
+        if (oop_GetElapsedUS(start, oop_GetCycleCount()) > 100) {
             __enable_irq();
             SYS_LOG("DHT11: No response");
             return false;
@@ -111,9 +111,9 @@ static bool read_raw(uint8_t *buffer)
     }
 
     // 等待 DHT11 释放总线（拉高约 80us）
-    start = bsp_GetCycleCount();
-    while (BSP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_RESET) {
-        if (bsp_GetElapsedUS(start, bsp_GetCycleCount()) > 100) {
+    start = oop_GetCycleCount();
+    while (OOP_GPIO_READ_RAW(&s_dev) == GPIO_PIN_RESET) {
+        if (oop_GetElapsedUS(start, oop_GetCycleCount()) > 100) {
             __enable_irq();
             SYS_LOG("DHT11: Stuck LOW");
             return false;
@@ -140,20 +140,20 @@ static bool read_raw(uint8_t *buffer)
 
 void DHT11_Init(GPIO_TypeDef *port, uint16_t pin)
 {
-    /* 使用新版 BSP 初始化为开漏输出（端口/引脚由工程注入） */
-    if (!bsp_gpio_init_with_mode(&s_dev,
+    /* 使用新版 OOP GPIO 初始化为开漏输出（端口/引脚由工程注入） */
+    if (!oop_gpio_init_with_mode(&s_dev,
                                  port,
                                  pin,
                                  true,                          /* active_high */
-                                 BSP_GPIO_MODE_OUTPUT_OD,
-                                 BSP_GPIO_PULL_NOPULL,
-                                 BSP_GPIO_SPEED_HIGH)) {
+                                 OOP_GPIO_MODE_OUTPUT_OD,
+                                 OOP_GPIO_PULL_NOPULL,
+                                 OOP_GPIO_SPEED_HIGH)) {
         SYS_LOG("DHT11: Init FAILED");
         return;
     }
 
     /* 总线默认释放 */
-    BSP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_SET);
+    OOP_GPIO_WRITE_RAW(&s_dev, GPIO_PIN_SET);
     SYS_LOG("DHT11: Init OK");
 }
 

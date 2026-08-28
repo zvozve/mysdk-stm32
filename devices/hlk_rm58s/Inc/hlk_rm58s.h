@@ -3,9 +3,9 @@
 
 #include <stdint.h>
 #include <stdbool.h>
-#include "bsp_dwt.h"
-#include "bsp_gpio_drv.h"
-#include "bsp_uart_drv.h"
+#include "oop_dwt.h"
+#include "oop_gpio_drv.h"
+#include "oop_uart_drv.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -14,7 +14,7 @@ extern "C" {
 /* ===========================
  * ★ 时间宏：使用 DWT，裸机/RTOS 通用 ★
  * =========================== */
-// #define HLK_GET_TICK_MS()   (bsp_GetCycleCount() / (SystemCoreClock / 1000))
+// #define HLK_GET_TICK_MS()   (oop_GetCycleCount() / (SystemCoreClock / 1000))
 #define HLK_GET_TICK_MS()   HAL_GetTick()
 typedef enum {
     HLK_STATE_IDLE = 0,

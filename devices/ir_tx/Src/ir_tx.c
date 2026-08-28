@@ -6,7 +6,7 @@
  */
 
 #include "ir_tx.h"
-#include "bsp_dwt.h"
+#include "oop_dwt.h"
 #include "SEGGER_RTT_Log.h"
 
 /* ========== 内部状态 ========== */
@@ -113,17 +113,17 @@ bool IR_TX_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
             if (level == 0) {
                 /* 载波段：点亮红外发射管（VS1838B 低电平 = 有载波） */
                 ir_tx_carrier(true);
-                bsp_DelayUS(dur_us[i]);
+                oop_DelayUS(dur_us[i]);
                 ir_tx_carrier(false);
             } else {
                 /* 静默段：保持熄灭 */
-                bsp_DelayUS(dur_us[i]);
+                oop_DelayUS(dur_us[i]);
             }
             level ^= 1;
         }
 
         if ((r + 1) < repeats && repeat_gap_ms > 0) {
-            bsp_DelayMS(repeat_gap_ms);
+            oop_DelayMS(repeat_gap_ms);
         }
     }
 
