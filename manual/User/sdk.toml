@@ -6,7 +6,7 @@
 # 因此要落到工程根需上跳一级(../MySDK)， board_cfg 直接写文件名(在 User/ 内)。
 # 仅 sdk 一项需要填真实路径；换 SDK 目录改这一行即可，其余不变。
 
-sdk       = "<SDK_ROOT>"          # my-stm32-sdk 仓库绝对路径（必填）
+sdk       = "<SDK_ROOT>"          # mystm32-sdk 仓库绝对路径（必填）
 dest      = "../MySDK"            # 拉取目标（相对 User/，故上跳一级落到工程根；根 CMakeLists 以 MySDK 同名 add_subdirectory）
 board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User/board_cfg.h；已存在则不覆盖）
 
