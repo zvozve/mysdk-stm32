@@ -4,7 +4,6 @@
     "version": "0.3.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
-    "repo": "C:/Container/Applications/Dev_STM32/mystm32-sdk",
     "license": "internal",
     "created": "2026-08-28"
   },
