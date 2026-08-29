@@ -7,7 +7,7 @@ sync_lib.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
     python sync_lib.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
 
 sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
-    sdk        = "C:/Container/Applications/Dev_STM32/mystm32-sdk"  # SDK 根目录
+    sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sync_lib.py 自动以其自身所在目录定位仓库
     dest       = "../MySDK"                # 拉取目标，相对 sdk.toml 所在目录(User/)解析；
                                             #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
     board_cfg  = "board_cfg.h"             # 绑定文件，相对 User/ 解析（即 User/board_cfg.h）；
@@ -156,9 +156,15 @@ def main():
     with open(toml_path, "rb") as f:
         cfg = tomllib.load(f)
 
-    sdk_root = Path(args.sdk or cfg.get("sdk", "")).resolve()
-    if not sdk_root.is_dir():
-        sys.exit(f"SDK 根目录不存在: {sdk_root}")
+    # SDK 根目录解析优先级: --sdk > sdk.toml 的 sdk= > 脚本自身所在目录(仓库内 tools/ 的上一级)
+    # 仓库不记录自身位置，随 clone 到任意路径都能自定位。
+    explicit = (args.sdk or cfg.get("sdk") or "").strip()
+    if explicit and explicit != "<SDK_ROOT>":
+        sdk_root = Path(explicit).resolve()
+    else:
+        sdk_root = Path(__file__).resolve().parent.parent
+    if not sdk_root.is_dir() or not (sdk_root / "sdk_manifest.json").is_file():
+        sys.exit(f"SDK 根目录不存在或无效（未找到 sdk_manifest.json）: {sdk_root}")
 
     project_root = toml_path.parent
     dest = project_root / cfg.get("dest", "MySDK")

@@ -61,7 +61,7 @@ SDK 是单源真相仓库，工程不保留 SDK 源码副本。通过 `tools/syn
 工程根放置 `sdk.toml`（可参考 SmartHome 工程）：
 
 ```toml
-sdk       = "C:/Container/Applications/Dev_STM32/mystm32-sdk"  # SDK 绝对路径（无连字符）
+sdk       = "<SDK 仓库绝对路径>"   # SDK 绝对路径（无连字符）；省略时 sync_lib.py 自动定位仓库
 dest      = "MySDK"                  # 镜像目标（相对 toml 所在目录解析）
 board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖）
 
@@ -73,7 +73,7 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 | 字段 | 含义 | 备注 |
 |---|---|---|
-| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mystm32-sdk`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」 |
+| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mystm32-sdk`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sync_lib.py 自动以其自身所在目录定位仓库 |
 | `dest` | 镜像目标目录 | 相对 toml 所在目录；根 CMakeLists 的 `add_subdirectory` 名必须与之一致 |
 | `board_cfg` | 绑定文件路径 | 仅首次生成模板；之后保留工程资产，不被覆盖 |
 | `[modules]` | 模块选择 | 写 `= true` 的模块，其 `depends` 由脚本递归补全；`external:*` 依赖跳过、由工程侧提供 |
