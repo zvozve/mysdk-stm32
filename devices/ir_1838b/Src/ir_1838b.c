@@ -7,6 +7,7 @@
 
 #include "ir_1838b.h"
 #include "oop_dwt.h"
+#include "oop_tim_drv.h"
 #include "SEGGER_RTT_Log.h"
 #include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT（不依赖工程 tim.h） */
 #include <string.h>
@@ -59,7 +60,7 @@ static void ir_gpio_callback(uint16_t pin, void *user_data)
         if (s_edge_cnt >= 4) {
             s_raw.edges     = s_edge_cnt;
             s_raw.valid     = true;
-            s_raw.timestamp = HAL_GetTick();
+            s_raw.timestamp = oop_GetTickMS();
             s_frame_ready   = true;
             s_frame_cnt++;
         }
@@ -102,7 +103,7 @@ void IR1838B_Tick1ms(void)
     if (s_edge_cnt >= 4) {
         s_raw.edges     = s_edge_cnt;
         s_raw.valid     = true;
-        s_raw.timestamp = HAL_GetTick();
+        s_raw.timestamp = oop_GetTickMS();
         s_frame_ready   = true;
         s_frame_cnt++;
     }
@@ -150,7 +151,7 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
     /* 启动注入的 TIM（1ms 节拍）用于静默收尾。
      * TIM 由 CubeMX 配置好 1ms 参数，其更新中断里调用 IR1838B_Tick1ms；
      * SDK 只负责启动/停止，不记录具体定时器实例。 */
-    if (HAL_TIM_Base_Start_IT(s_htim) != HAL_OK) {
+    if (!oop_tim_base_start_it(s_htim)) {
         SYS_LOG("IR1838B: TIM start FAIL");
     }
 
@@ -164,7 +165,7 @@ void IR1838B_DeInit(void)
 {
     s_enabled = false;
     if (s_htim != NULL) {
-        HAL_TIM_Base_Stop_IT(s_htim);
+        oop_tim_base_stop_it(s_htim);
     }
     oop_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
     SYS_LOG("IR1838B: DeInit");

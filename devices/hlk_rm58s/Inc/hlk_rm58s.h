@@ -15,7 +15,7 @@ extern "C" {
  * ★ 时间宏：使用 DWT，裸机/RTOS 通用 ★
  * =========================== */
 // #define HLK_GET_TICK_MS()   (oop_GetCycleCount() / (SystemCoreClock / 1000))
-#define HLK_GET_TICK_MS()   HAL_GetTick()
+#define HLK_GET_TICK_MS()   oop_GetTickMS()
 typedef enum {
     HLK_STATE_IDLE = 0,
     HLK_STATE_CONFIGURING,

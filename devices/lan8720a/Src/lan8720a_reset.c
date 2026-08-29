@@ -16,7 +16,7 @@ static gpio_dev_t eth_rst_io = {0};   /* PHY 复位引脚，端口/引脚由 ETH
 
 static void lan_delay_ms(uint32_t ms)
 {
-  HAL_Delay(ms);
+  oop_DelayMS(ms);
 }
 
 void ETH_RST_Init(GPIO_TypeDef *port, uint16_t pin)

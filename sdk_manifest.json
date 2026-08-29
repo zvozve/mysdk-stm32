@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "repo": "C:/Container/Applications/Dev_STM32/mystm32-sdk",
@@ -81,6 +81,38 @@
       ]
     },
     {
+      "id": "chip.oop_tim",
+      "name": "oop_tim",
+      "layer": "chip",
+      "category": "tim",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "chip/oop_tim",
+      "description": "TIM OOP 驱动封装（PWM 载波 + 通用时基 IT），坐 HAL_TIM_* 之上；device 层（ir_tx / ir_1838b）统一走本封装，不直调 HAL_TIM_*。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_tim/Inc/oop_tim_drv.h",
+        "chip/oop_tim/Src/oop_tim_drv.c"
+      ]
+    },
+    {
+      "id": "chip.oop_iwdg",
+      "name": "oop_iwdg",
+      "layer": "chip",
+      "category": "iwdg",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "chip/oop_iwdg",
+      "description": "IWDG 独立看门狗 OOP 封装（喂狗），内部按 HAL_IWDG_MODULE_ENABLED 守卫，未启用时为空操作；device 层（heart_beat）统一走本封装。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_iwdg/Inc/oop_iwdg_drv.h",
+        "chip/oop_iwdg/Src/oop_iwdg_drv.c"
+      ]
+    },
+    {
       "id": "chip.platform",
       "name": "hal_platform",
       "layer": "chip",
@@ -118,7 +150,7 @@
       "version": null,
       "path": "devices/heart_beat",
       "description": "心跳模块（极简版）：自动注册一个 LED，APP 只调 toggle（IO 翻转 + 喂狗逻辑由组件负责）。",
-      "depends": ["chip.oop_gpio", "middleware.SEGGER_RTT"],
+      "depends": ["chip.oop_gpio", "chip.oop_iwdg", "middleware.SEGGER_RTT"],
       "backends": ["chip.oop_gpio"],
       "files": [
         "devices/heart_beat/Inc/heart_beat.h",
@@ -150,7 +182,7 @@
       "updated": "2026-08-27",
       "path": "devices/ir_1838b",
       "description": "红外接收头 IR 1838B 驱动（基于定时器输入捕获）。",
-      "depends": ["chip.oop_dwt", "chip.oop_gpio", "middleware.SEGGER_RTT"],
+      "depends": ["chip.oop_dwt", "chip.oop_gpio", "chip.oop_tim", "middleware.SEGGER_RTT"],
       "backends": ["hal"],
       "files": [
         "devices/ir_1838b/Inc/ir_1838b.h",
@@ -166,7 +198,7 @@
       "updated": "2026-08-27",
       "path": "devices/ir_tx",
       "description": "红外发射驱动（PWM/载波调制）。",
-      "depends": ["chip.platform", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "depends": ["chip.platform", "chip.oop_dwt", "chip.oop_gpio", "chip.oop_tim", "middleware.SEGGER_RTT"],
       "backends": ["hal"],
       "files": [
         "devices/ir_tx/Inc/ir_tx.h",

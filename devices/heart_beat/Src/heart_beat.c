@@ -44,13 +44,8 @@ void heart_beat_run(void) {
         // SYS_LOG("oop_gpio_toggle");
     }
 
-    // 2. 喂看门狗（句柄由工程注入；NULL 则不喂）
-    /* IWDG 模块未启用时整体剔除，避免链接到不存在的 HAL_IWDG_Refresh */
-#ifdef HAL_IWDG_MODULE_ENABLED
-    if (g_hiwdg != NULL) {
-        HAL_IWDG_Refresh(g_hiwdg);
-    }
-#endif
+    // 2. 喂看门狗（句柄由工程注入；NULL 或模块未启用时 oop_iwdg_refresh 为空操作）
+    oop_iwdg_refresh(g_hiwdg);
 }
 
 /**
