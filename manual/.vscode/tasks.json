@@ -1,0 +1,65 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build",
+            "type": "cmake",
+            "command": "build",
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": ["$gcc"]
+        },
+        {
+            "label": "Build & Flash",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "flash",
+                "${config:jlink.root}",
+                "${command:cmake.launchTargetPath}",
+                "${config:jlink.device}",
+                "${config:jlink.interface}",
+                "${config:jlink.speed}",
+                "${workspaceFolder}"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "flash",
+                "${config:jlink.root}",
+                "${command:cmake.getLaunchTargetPath}",
+                "${config:jlink.device}",
+                "${config:jlink.interface}",
+                "${config:jlink.speed}",
+                "${workspaceFolder}"
+            ],
+            "group": { "kind": "build", "isDefault": true },
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Pull SDK",
+            "type": "shell",
+            "command": "python",
+            "args": [ "${workspaceFolder}/sdk_run.py", "pull" ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "OOP Audit",
+            "type": "shell",
+            "command": "python",
+            "args": [ "${workspaceFolder}/sdk_run.py", "audit" ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        }
+    ]
+}

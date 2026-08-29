@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sync_lib.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
+sync_lib.py —— my-stm32-sdk 子集拉取工具（SDK → 工程）
 
 用法:
     python sync_lib.py <工程根>/sdk.toml [--sdk <SDK根目录>] [--dry-run]
@@ -68,7 +68,7 @@ def resolve_closure(manifest: dict, selected: list) -> list:
 
 
 def mirror_module(sdk_root: Path, mod: dict, dest_root: Path, dry: bool):
-    src = sdk_root / mod["path"]
+    src = sdk_root / "library" / mod["path"]
     dst = dest_root / mod["path"]
     if not src.is_dir():
         sys.exit(f"模块目录缺失: {src}")
@@ -90,7 +90,7 @@ BOARD_CFG_TEMPLATE = """\
  *
  * 规则：
  *   - 全工程唯一允许 include CubeMX 生成头（main.h / usart.h / tim.h / gpio.h ...）
- *     的地方就是本文件；SDK（User/mystm32-sdk/）不做任何绑定。
+ *     的地方就是本文件；SDK（library/）不做任何绑定。
  *   - app / tasks 只引用本文件的绑定宏，不直接引用 MX 符号。
  *   - 换板只改本文件（引脚、句柄、时钟），SDK 与业务代码不动。
  */
@@ -134,7 +134,7 @@ extern "C" {
 
 
 def main():
-    ap = argparse.ArgumentParser(description="mystm32-sdk 子集拉取")
+    ap = argparse.ArgumentParser(description="my-stm32-sdk 子集拉取")
     ap.add_argument("toml", help="工程 sdk.toml 路径")
     ap.add_argument("--sdk", help="覆盖 toml 中的 SDK 根目录")
     ap.add_argument("--dry-run", action="store_true")
@@ -152,7 +152,7 @@ def main():
         sys.exit(f"SDK 根目录不存在: {sdk_root}")
 
     project_root = toml_path.parent
-    dest = project_root / cfg.get("dest", "User/mystm32-sdk")
+    dest = project_root / cfg.get("dest", "MySDK")
     board_cfg = project_root / cfg.get("board_cfg", "User/board_cfg.h")
 
     selected = [k for k, v in cfg.get("modules", {}).items() if v]

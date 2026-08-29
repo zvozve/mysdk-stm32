@@ -15,12 +15,7 @@
             "rttConfig": {
                 "enabled": true,
                 "address": "auto",
-                "decoders": [
-                    {
-                        "port": 0,
-                        "type": "console"
-                    }
-                ]
+                "decoders": [ { "port": 0, "type": "console" } ]
             }
         },
         {
@@ -37,12 +32,7 @@
             "rttConfig": {
                 "enabled": true,
                 "address": "auto",
-                "decoders": [
-                    {
-                        "port": 0,
-                        "type": "console"
-                    }
-                ]
+                "decoders": [ { "port": 0, "type": "console" } ]
             }
         }
     ]

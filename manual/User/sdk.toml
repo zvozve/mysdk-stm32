@@ -1,0 +1,31 @@
+# SDK 拉取配置模板（从 SDK manual/User/sdk.toml 拷贝到工程 User/sdk.toml 后填写）
+# 用法: python <SDK_ROOT>/tools/sync_lib.py User/sdk.toml
+#
+# 本文件与 board_cfg.h 同置于工程 User/（均为工程侧资产，sync 不会覆盖）。
+# 仅 sdk 一项需要填真实路径；换 SDK 目录改这一行即可，其余不变。
+
+sdk       = "<SDK_ROOT>"          # my-stm32-sdk 仓库绝对路径（必填）
+dest      = "MySDK"               # 拉取目标（相对工程根；根 CMakeLists 以同名 add_subdirectory）
+board_cfg = "User/board_cfg.h"    # 硬件绑定文件（已存在则不覆盖）
+
+[modules]
+# ---- chip：MCU 片上外设 OOP 封装 ----
+"chip.oop_dwt"   = true   # DWT 微秒延时
+"chip.oop_gpio"  = true   # GPIO 抽象（含中断回调）
+"chip.oop_uart"  = true   # UART 驱动
+"chip.oop_tim"   = true   # TIM OOP 封装（PWM 载波 / 时基 IT）
+"chip.oop_iwdg"  = true   # IWDG OOP 封装（喂狗）
+"chip.platform"  = true   # HAL 统一入口（系列宏）
+
+# ---- devices：板载外挂器件（按工程实际选用） ----
+"devices.dht11"      = true   # 温湿度
+"devices.heart_beat" = true   # 心跳 LED
+"devices.hlk_rm58s"  = true   # WiFi 模组（AT）
+"devices.ir_1838b"   = true   # 红外接收
+"devices.ir_tx"      = true   # 红外发射
+"devices.lan8720a"   = true   # ETH PHY 复位
+
+# ---- protocols：协议/算法 ----
+"protocols.ac_codec" = true   # 空调红外编码
+"protocols.mqtt"     = true   # MQTT 客户端
+"protocols.wol"      = true   # Wake-on-LAN（依赖工程侧 lwIP）
