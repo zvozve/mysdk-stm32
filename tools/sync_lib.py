@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sync_lib.py —— my-stm32-sdk 子集拉取工具（SDK → 工程）
+sync_lib.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
 
 用法:
     python sync_lib.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
@@ -143,7 +143,7 @@ extern "C" {
 
 
 def main():
-    ap = argparse.ArgumentParser(description="my-stm32-sdk 子集拉取")
+    ap = argparse.ArgumentParser(description="mystm32-sdk 子集拉取")
     ap.add_argument("toml", help="工程 sdk.toml 路径")
     ap.add_argument("--sdk", help="覆盖 toml 中的 SDK 根目录")
     ap.add_argument("--dry-run", action="store_true")
