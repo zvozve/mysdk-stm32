@@ -127,6 +127,22 @@
       ]
     },
     {
+      "id": "chip.oop_i2c",
+      "name": "oop_i2c",
+      "layer": "chip",
+      "category": "i2c",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "chip/oop_i2c",
+      "description": "软 I2C（bit-bang）OOP 封装，坐 oop_gpio RAW 宏 + oop_dwt 延时之上；device 层（at24cxx / OLED12864）统一走本封装，不直调 HAL。取代旧 bsp_i2c。",
+      "depends": ["chip.oop_gpio", "chip.oop_dwt"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_i2c/Inc/oop_i2c_drv.h",
+        "chip/oop_i2c/Src/oop_i2c_drv.c"
+      ]
+    },
+    {
       "id": "devices.dht11",
       "name": "dht11",
       "layer": "devices",
@@ -218,6 +234,38 @@
       "files": [
         "devices/lan8720a/Inc/lan8720a_reset.h",
         "devices/lan8720a/Src/lan8720a_reset.c"
+      ]
+    },
+    {
+      "id": "devices.at24cxx",
+      "name": "at24cxx",
+      "layer": "devices",
+      "category": "eeprom",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "devices/at24cxx",
+      "description": "AT24Cxx I2C EEPROM 驱动（读写/擦除），坐 chip.oop_i2c 软总线之上；引脚由调用方注入，不硬编码 GPIO。取代旧 bsp_i2c + bsp_dwt 依赖的 Hardware/at24cxx。",
+      "depends": ["chip.oop_i2c", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "backends": ["chip.oop_i2c"],
+      "files": [
+        "devices/at24cxx/Inc/at24cxx.h",
+        "devices/at24cxx/Src/at24cxx.c"
+      ]
+    },
+    {
+      "id": "devices.OLED12864",
+      "name": "OLED12864",
+      "layer": "devices",
+      "category": "display",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "devices/OLED12864",
+      "description": "SSD1306 0.96\" OLED 驱动（仅驱动层 oled_driver，UI/func 应用层不入 SDK），坐 chip.oop_i2c 软总线之上；引脚由调用方注入。取代旧 bsp_i2c 依赖的 Hardware/OLED12864。",
+      "depends": ["chip.oop_i2c", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "backends": ["chip.oop_i2c"],
+      "files": [
+        "devices/OLED12864/Inc/oled_driver.h",
+        "devices/OLED12864/Src/oled_driver.c"
       ]
     },
     {
@@ -337,6 +385,7 @@
     "wol 依赖 lwIP（lwip/err.h），属 CubeMX Middlewares，不入本 SDK，由项目侧提供 netif 与目标 MAC。",
     "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/oop_audit.py。",
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
-    "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。"
+    "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
+    "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）改造为注入引脚 + 坐 oop_i2c，已入库。DROP：BSP/bsp_dwt|bsp_gpio|bsp_uart（已被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复，仅 _Log.h 回退集中 tag，已冗余）、Hardware/KEY|TM8211（板级代码，不入 SDK）、Protocols/IIC（与 chip.oop_i2c 重复的软 I2C，单源保留 oop_i2c）。"
   ]
 }
