@@ -5,7 +5,7 @@ setlocal enabledelayedexpansion
 :: 脚本信息
 :: ============================================================
 set "SCRIPT_VERSION=3.1"
-set "SCRIPT_NAME=STM32 Flash Tool (SDK .sdktool)"
+set "SCRIPT_NAME=STM32 Flash Tool (SDK tools)"
 
 :: ============================================================
 :: 使用说明
@@ -18,11 +18,11 @@ set "SCRIPT_NAME=STM32 Flash Tool (SDK .sdktool)"
 ::   3. 普通模式: 不擦除，烧录到默认地址
 ::   4. 自动查找 .bin 文件和 JLink.exe
 ::
-:: 本脚本是 SDK 单源工具 (my-stm32-sdk/.sdktool/flash.bat)，不随工程拉取
-:: (sync_lib.py 只镜像 chip/devices/protocols/middleware)。工程 .vscode 任务
-:: 通过相对路径调用本文件，并传入工程根目录 (ProjRoot)，脚本据此定位
-:: .ld / .ioc / .bin。省略 ProjRoot 时使用当前工作目录 (VSCode 任务默认
-:: cwd = ${workspaceFolder})。
+:: 本脚本是 SDK 单源工具 (my-stm32-sdk/tools/flash.bat)，不随工程拉取
+:: (sync_lib.py 只镜像 library/ 下的 chip/devices/protocols/middleware)。工程经
+:: manual/ 提供的 sdk_run.py 桥接、再由 .vscode 任务调用本文件，并传入工程根
+:: 目录 (ProjRoot)，脚本据此定位 .ld / .ioc / .bin。省略 ProjRoot 时使用当前
+:: 工作目录 (VSCode 任务默认 cwd = ${workspaceFolder})。
 
 set "JLROOT=%~1"
 set "ELF_IN=%~2"

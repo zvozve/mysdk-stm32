@@ -310,6 +310,6 @@
     "wol 依赖 lwIP（lwip/err.h），属 CubeMX Middlewares，不入本 SDK，由项目侧提供 netif 与目标 MAC。",
     "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/oop_audit.py。",
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
-    "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 User/mystm32-sdk/，绑定（devicetree 类）在工程侧完成。"
+    "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。"
   ]
 }

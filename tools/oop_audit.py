@@ -13,10 +13,10 @@ oop_audit.py — mystm32-sdk HAL 泄漏检查器
 具体句柄 / IO / 定时器 / 网口一律由调用方（工程 board_cfg）注入。
 
 用法：
-    python tools/oop_audit.py            # 扫描 chip/ devices/ protocols/
+    python tools/oop_audit.py            # 扫描 library/chip library/devices library/protocols
     python tools/oop_audit.py --strict   # 非零退出码以便接入 CI
 
-第三方中间件（middleware/、protocols/cJSON）为 vendor 代码，跳过不查。
+第三方中间件（library/middleware/、library/protocols/cJSON）为 vendor 代码，跳过不查。
 """
 import os
 import re
@@ -25,7 +25,7 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 扫描范围（跳过第三方中间件与 cJSON）
-SCAN_DIRS = ["chip", "devices", "protocols"]
+SCAN_DIRS = ["library/chip", "library/devices", "library/protocols"]
 
 # 1) 禁止包含的 CubeMX 工程生成头
 FORBIDDEN_INCLUDES = [
@@ -104,7 +104,7 @@ def main():
             for fn in files:
                 if not fn.endswith((".c", ".h")):
                     continue
-                if os.path.join(root, fn).replace(ROOT, "").replace("\\", "/").startswith("/protocols/cJSON"):
+                if os.path.join(root, fn).replace(ROOT, "").replace("\\", "/").startswith("/library/protocols/cJSON"):
                     continue
                 hits = scan_file(os.path.join(root, fn))
                 if hits:

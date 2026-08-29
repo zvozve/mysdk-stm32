@@ -2,11 +2,14 @@
 
 本仓库用于存放自建 STM32 SDK。
 
-包含以下内容：
-- 片上寄存器 OOP 封装（基于 HAL） —— `chip/`
-- 板外设备驱动 —— `devices/`
-- 协议封装 —— `protocols/`
-- 第三方中间件 —— `middleware/`
+仓库分三层，职责互不混淆：
+- `library/` —— 固件源码（按 `sdk.toml` 自动拉取到工程 `MySDK/`），含：
+  - 片上寄存器 OOP 封装（基于 HAL） —— `library/chip/`
+  - 板外设备驱动 —— `library/devices/`
+  - 协议封装 —— `library/protocols/`
+  - 第三方中间件 —— `library/middleware/`
+- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sync_lib.py` / `oop_audit.py`（SDK 维护）、`flash.bat` / `trans_gbk2utf-8.py`（工程面向）。
+- `manual/` —— 手动拷贝到工程的脚手架（`sdk_run.py` 桥接 + `.vscode` 接口模板 + `User/` 配置模板），**不自动拉取**。
 
 ## 版本
 
@@ -18,28 +21,25 @@
 
 ```
 mystm32-sdk/
-├── chip/            # MCU 内部外设 OOP 封装（板无关，基于 HAL）
-│   ├── oop_dwt/     # DWT 延时/计时
-│   ├── oop_gpio/    # GPIO 驱动（drv 抽象 + drv_hal 后端）
-│   ├── oop_uart/    # 串口 DMA 驱动 + 状态机
-│   ├── oop_tim/     # TIM 驱动（PWM/时基，坐 HAL_TIM_*）
-│   ├── oop_iwdg/    # IWDG 看门狗（坐 HAL_IWDG_*）
-│   └── platform/    # hal_platform.h 移植层（系列统一入口）
-├── devices/         # 板载外挂芯片驱动（坐 chip/ 总线）
-│   ├── dht11/       # 温湿度
-│   ├── heart_beat/  # 心跳 LED
-│   ├── hlk_rm58s/   # WiFi 模块（AT）
-│   ├── ir_1838b/    # 红外接收
-│   ├── ir_tx/       # 红外发射
-│   └── lan8720a/    # 以太网 PHY 复位
-├── protocols/       # 协议 / 算法库
-│   ├── ac_codec/    # 空调码编解码
-│   ├── mqtt/        # MQTT 客户端
-│   └── wol/         # Wake-on-LAN（依赖 lwIP）
-├── middleware/      # 第三方调试/传输库
-│   ├── cJSON/       # JSON 解析（第三方）
-│   └── SEGGER_RTT/  # 实时日志
-├── sdk_manifest.json  # SDK 自描述（模块/依赖/版本/文件清单）
+├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/
+│   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
+│   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ platform/
+│   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
+│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/
+│   ├── protocols/    # 协议 / 算法库
+│   │   ├── ac_codec/ mqtt/ wol/
+│   └── middleware/   # 第三方调试/传输库
+│       ├── cJSON/ SEGGER_RTT/
+├── tools/            # 全部 host 工具（单源，只调用不拉取）
+│   ├── sync_lib.py   # 子集拉取（SDK 维护）
+│   ├── oop_audit.py  # HAL 泄漏检查（SDK 维护）
+│   ├── flash.bat     # J-Link 烧录（工程面向）
+│   └── trans_gbk2utf-8.py  # GBK→UTF-8（工程面向）
+├── manual/           # 手动拷贝的脚手架（不自动拉取）
+│   ├── sdk_run.py    # 工程侧桥接：读 User/sdk.toml → 调 tools/*
+│   ├── .vscode/      # tasks/launch/keybindings 接口模板（task 调 sdk_run.py）
+│   └── User/         # sdk.toml / board_cfg.h 模板
+├── sdk_manifest.json # SDK 自描述（模块/依赖/版本/文件清单）
 └── readme.md
 ```
 
@@ -98,7 +98,7 @@ python <SDK根>/tools/sync_lib.py <工程根>/User/sdk.toml --sdk <其他 SDK �
 
 拉取行为：
 1. 解析所选模块 `depends` 闭包（拓扑序）；引用了 manifest 不存在的模块直接报错退出。
-2. **先 `rmtree(dest)` 再整目录镜像** `<layer>/<module>/` → `dest/<layer>/<module>/`
+2. **先 `rmtree(dest)` 再整目录镜像** `library/<layer>/<module>/` → `dest/<layer>/<module>/`
    （手动改 `MySDK/` 会被清空，要改只能改 SDK 源仓后重新拉取）。
 3. 拷贝 SDK 根 `CMakeLists.txt` → `dest/CMakeLists.txt`（组件构建脚本）。
 4. `board_cfg.h` 仅在「读取 1 字节确认不存在」时生成模板（避免云端盘在线占位误覆盖）。
@@ -137,10 +137,19 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
 - **路径风格**：sync 命令用 Windows 风格 `C:/...`，避免 Git Bash 把 `/c/...` 解析成 `c:\c\...`。
-- **工程侧一键拉取**：SmartHome 在 `.sdktool/` 下提供了 `pull_sdk.py` / `pull_sdk.bat` 封装，
-  自动定位 `User/sdk.toml` 并调用本脚本，省去手写长命令。
+- **工程侧接口（SDK 位置只在 `sdk.toml` 一处配置）**：把 `manual/` 的内容拷到工程——
+  `manual/sdk_run.py` → 工程根、`manual/.vscode/*` → 工程 `.vscode/`、`manual/User/*` → 工程 `User/`。
+  之后 `.vscode` 任务（Build/Pull/Audit/Flash/Debug）经 `sdk_run.py` 桥接调用 `tools/*`，
+  **task.json 与 sdk_run.py 都不硬编码 SDK 路径**；换 SDK 目录只改 `sdk.toml` 的 `sdk = "..."` 一行。
 
 ## 版本变更记录
+
+### 仓库结构三层化（2026-08-29，SDK 组织重构，模块 API 不变）
+
+- **`library/`**：原 `chip/ devices/ protocols/ middleware/` 整体移入 `library/`，作为**按 `sdk.toml` 自动拉取**的固件源码根。`sync_lib.py` 源根改为 `library/`、目标仍落 `dest/<layer>/<module>/`（剥离前缀），`sdk_manifest.json` 的 `path` 不变；`oop_audit.py` 扫描目录同步加 `library/` 前缀。
+- **`tools/`**：合并原 `.sdktool/` 与既有维护脚本，成为**全部 host 工具单源**（只调用不拉取）：`sync_lib.py`/`oop_audit.py`（SDK 维护）、`flash.bat`/`trans_gbk2utf-8.py`（工程面向）。新增 `tools/README.md` 标注分类。
+- **`manual/`**：新增**手动拷贝脚手架**（不自动拉取）：`sdk_run.py`（工程侧桥接，读 `User/sdk.toml` 的 `[sdk]` → 调 `tools/*`，使 SDK 位置只在 `sdk.toml` 一处配置）、`.vscode/`（tasks/launch/keybindings 接口模板，任务经 `sdk_run.py` 调工具）、`User/`（sdk.toml / board_cfg.h 模板）。
+- 工程侧 `.vscode` 任务的 `flash/pull/audit` 全部经 `sdk_run.py` 分发，**task.json 不出现 SDK 路径或相对深度**；换 SDK 目录只需改 `sdk.toml` 的 `sdk = "..."` 一行。
 
 ### v0.3.0 (2026-08-29) — devices 层零直调 HAL + 任务接口统一
 
