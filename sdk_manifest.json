@@ -303,6 +303,33 @@
         "protocols/wol/Inc/wol.h",
         "protocols/wol/Src/wol.c"
       ]
+    },
+    {
+      "id": "protocols.Modbus",
+      "name": "Modbus",
+      "layer": "protocols",
+      "category": "net",
+      "version": null,
+      "path": "protocols/Modbus",
+      "description": "Modbus 协议栈（RTU 主/从 + TCP 主/从），UART/LwIP 适配器注入，纯协议层、板无关。",
+      "depends": ["chip.oop_uart", "middleware.SEGGER_RTT", "external:lwip"],
+      "backends": ["uart", "net"],
+      "files": [
+        "protocols/Modbus/Inc/modbus_core.h",
+        "protocols/Modbus/Inc/modbus_master.h",
+        "protocols/Modbus/Inc/modbus_rtu.h",
+        "protocols/Modbus/Inc/modbus_slave.h",
+        "protocols/Modbus/Inc/modbus_tcp.h",
+        "protocols/Modbus/Inc/modbus_tcp_adapter.h",
+        "protocols/Modbus/Inc/modbus_uart_adapter.h",
+        "protocols/Modbus/Src/modbus_core.c",
+        "protocols/Modbus/Src/modbus_master.c",
+        "protocols/Modbus/Src/modbus_rtu.c",
+        "protocols/Modbus/Src/modbus_slave.c",
+        "protocols/Modbus/Src/modbus_tcp.c",
+        "protocols/Modbus/Src/modbus_tcp_adapter.c",
+        "protocols/Modbus/Src/modbus_uart_adapter.c"
+      ]
     }
   ],
   "notes": [
