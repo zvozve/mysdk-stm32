@@ -4,12 +4,14 @@
 sync_lib.py —— my-stm32-sdk 子集拉取工具（SDK → 工程）
 
 用法:
-    python sync_lib.py <工程根>/sdk.toml [--sdk <SDK根目录>] [--dry-run]
+    python sync_lib.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
 
-sdk.toml 格式:
+sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
     sdk        = "C:/Container/Applications/Dev_STM32/mystm32-sdk"  # SDK 根目录
-    dest       = "MySDK"                   # 拉取目标（相对工程根；根 CMakeLists 以同名目录 add_subdirectory）
-    board_cfg  = "User/board_cfg.h"        # 绑定文件路径（已存在则不覆盖）
+    dest       = "../MySDK"                # 拉取目标，相对 sdk.toml 所在目录(User/)解析；
+                                            #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
+    board_cfg  = "board_cfg.h"             # 绑定文件，相对 User/ 解析（即 User/board_cfg.h）；
+                                            #   已存在则不覆盖（工程资产）
 
     [modules]                              # 显式选择；depends 闭包自动补全
     "chip.oop_dwt"   = true
