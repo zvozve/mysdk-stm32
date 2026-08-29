@@ -54,6 +54,13 @@ void oop_DelayMS(uint32_t ms);
 uint32_t oop_GetCycleCount(void);
 
 /**
+ * @brief 获取系统节拍（毫秒）
+ * @return 自启动以来的毫秒数（封装 HAL_GetTick / SysTick 时基）
+ * @note  device 层统一走本接口，避免直调 HAL_GetTick。
+ */
+uint32_t oop_GetTickMS(void);
+
+/**
  * @brief 获取两次计数之间的时间差（微秒）
  * @param start 起始计数值
  * @param end   结束计数值

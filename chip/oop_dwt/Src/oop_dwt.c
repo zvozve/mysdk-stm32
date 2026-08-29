@@ -78,6 +78,11 @@ uint32_t oop_GetCycleCount(void)
     return DWT_CYCCNT;
 }
 
+uint32_t oop_GetTickMS(void)
+{
+    return HAL_GetTick();
+}
+
 uint32_t oop_GetElapsedUS(uint32_t start, uint32_t end)
 {
     uint32_t diff = end - start;  /* 处理32位回绕 */

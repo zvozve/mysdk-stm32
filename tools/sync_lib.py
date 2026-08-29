@@ -195,7 +195,17 @@ def main():
         print("  [warn] SDK 根缺少 CMakeLists.txt，工程需自行接入源文件")
 
     # board_cfg 模板（不覆盖已有——绑定是工程资产）
-    if board_cfg.exists():
+    # 注意：云端盘（如 Google Drive 在线-only 占位）下 os.path.exists 可能误报
+    # 不存在，导致已填好的绑定被模板覆盖。故先用 try 打开并读取 1 字节确认，
+    # 触发云端下载；非空即视为已存在，保留工程资产。
+    _board_cfg_present = False
+    try:
+        with open(board_cfg, "rb") as _f:
+            if _f.read(1):
+                _board_cfg_present = True
+    except OSError:
+        _board_cfg_present = False
+    if _board_cfg_present:
         print(f"  [keep] board_cfg 已存在，不覆盖: {board_cfg}")
     else:
         board_cfg.parent.mkdir(parents=True, exist_ok=True)

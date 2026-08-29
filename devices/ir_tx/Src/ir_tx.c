@@ -7,11 +7,14 @@
 
 #include "ir_tx.h"
 #include "oop_dwt.h"
+#include "oop_gpio_drv.h"
+#include "oop_tim_drv.h"
 #include "SEGGER_RTT_Log.h"
 
 /* ========== 内部状态 ========== */
 static ir_tx_cfg_t          s_cfg;
 static TIM_HandleTypeDef    s_htim_tx;
+static gpio_dev_t           s_tx_gpio = {0};
 static volatile bool        s_busy    = false;
 static bool                 s_inited  = false;
 
@@ -19,9 +22,9 @@ static bool                 s_inited  = false;
 static inline void ir_tx_carrier(bool on)
 {
     if (on) {
-        HAL_TIM_PWM_Start(&s_htim_tx, s_cfg.tim_channel);
+        oop_tim_pwm_start(&s_htim_tx, s_cfg.tim_channel);
     } else {
-        HAL_TIM_PWM_Stop(&s_htim_tx, s_cfg.tim_channel);
+        oop_tim_pwm_stop(&s_htim_tx, s_cfg.tim_channel);
     }
 }
 
@@ -40,36 +43,20 @@ bool IR_TX_Init(const ir_tx_cfg_t *cfg)
 
     /* 外设时钟（GPIO/TIM）由工程 CubeMX 初始化开启，驱动不接管时钟使能 */
 
-    /* 发射引脚：先拉低保证三极管关断，再切到复用推挽 */
-    HAL_GPIO_WritePin(s_cfg.gpio_port, s_cfg.gpio_pin, GPIO_PIN_RESET);
+    /* 发射引脚：先拉低保证三极管关断，再切到复用推挽（走 OOP GPIO） */
+    oop_gpio_init_af(&s_tx_gpio,
+                     s_cfg.gpio_port, s_cfg.gpio_pin, true,
+                     OOP_GPIO_MODE_AF_PP,
+                     OOP_GPIO_PULL_DOWN,
+                     OOP_GPIO_SPEED_HIGH,
+                     s_cfg.gpio_af);
+    OOP_GPIO_WRITE_RAW(&s_tx_gpio, GPIO_PIN_RESET);
 
-    GPIO_InitTypeDef gpio = {0};
-    gpio.Pin       = s_cfg.gpio_pin;
-    gpio.Mode      = GPIO_MODE_AF_PP;
-    gpio.Pull      = GPIO_PULLDOWN;     /* 载波关闭时保持三极管可靠关断 */
-    gpio.Speed     = GPIO_SPEED_FREQ_HIGH;
-    gpio.Alternate = s_cfg.gpio_af;
-    HAL_GPIO_Init(s_cfg.gpio_port, &gpio);
-
-    /* 时基：按注入参数配置 PWM 载波 */
-    s_htim_tx.Instance               = s_cfg.tim_inst;
-    s_htim_tx.Init.Prescaler         = s_cfg.tim_psc;
-    s_htim_tx.Init.CounterMode       = TIM_COUNTERMODE_UP;
-    s_htim_tx.Init.Period            = s_cfg.tim_arr;
-    s_htim_tx.Init.ClockDivision     = TIM_CLOCKDIVISION_DIV1;
-    s_htim_tx.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
-    if (HAL_TIM_PWM_Init(&s_htim_tx) != HAL_OK) {
+    /* 时基：按注入参数配置 PWM 载波（走 OOP TIM） */
+    s_htim_tx.Instance = s_cfg.tim_inst;
+    if (!oop_tim_pwm_init(&s_htim_tx, s_cfg.tim_channel,
+                          s_cfg.tim_psc, s_cfg.tim_arr, s_cfg.tim_ccr)) {
         SYS_LOG("IR_TX: TIM PWM init FAIL");
-        return false;
-    }
-
-    TIM_OC_InitTypeDef oc = {0};
-    oc.OCMode     = TIM_OCMODE_PWM1;
-    oc.Pulse      = s_cfg.tim_ccr;
-    oc.OCPolarity = TIM_OCPOLARITY_HIGH;
-    oc.OCFastMode = TIM_OCFAST_DISABLE;
-    if (HAL_TIM_PWM_ConfigChannel(&s_htim_tx, &oc, s_cfg.tim_channel) != HAL_OK) {
-        SYS_LOG("IR_TX: PWM channel config FAIL");
         return false;
     }
 
@@ -85,8 +72,8 @@ void IR_TX_DeInit(void)
         return;
     }
     ir_tx_carrier(false);
-    HAL_TIM_PWM_DeInit(&s_htim_tx);
-    HAL_GPIO_WritePin(s_cfg.gpio_port, s_cfg.gpio_pin, GPIO_PIN_RESET);
+    oop_tim_pwm_deinit(&s_htim_tx);
+    OOP_GPIO_WRITE_RAW(&s_tx_gpio, GPIO_PIN_RESET);
     s_inited = false;
     SYS_LOG("IR_TX: DeInit");
 }
