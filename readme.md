@@ -48,13 +48,18 @@ mystm32-sdk/
 - **分层不按物理位置混淆**：`chip/`=MCU 内，`devices/`=板外，`protocols/`=协议，`middleware/`=第三方。弃用 `Core/bsp/Drivers` 笼统或越权名。
 - **HAL 保留**：CubeMX 生成的 HAL 仍是 vendor 底层，OOP 封装包在它上面；明确否决「全去 HAL 自写」。
 - **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sync_lib.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。
+- **`MySDK/` 必须进工程版本库**（不 gitignore）：虽然它由 sync 生成，但对拿到工程的人它就是源码的一部分——缺了不知道少什么、也无法直接编译。定位同 CubeMX 生成的 HAL 库与初始化代码，一律入库。
 - **版本号规则**：SDK 顶层用语义化版本（如 `0.1.0`）；模块 `version` 沿用源码 `@version` 标注（Vx.y 或第三方原生版本），无标注者记为 null。
 
 ## 工程接入指南
 
-SDK 是单源真相仓库，工程不保留 SDK 源码副本。通过 `tools/sync_lib.py` 按
-`sdk.toml` 选模块，把闭包子树镜像到工程的 `MySDK/`，工程侧
-`add_subdirectory(MySDK)` + 链接 `mystm32` 静态库即可。换板只改 `board_cfg.h`。
+SDK 是单源真相仓库。通过 `tools/sync_lib.py` 按 `sdk.toml` 选模块，把闭包子树镜像到
+工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mystm32` 静态库即可，换板只改
+`board_cfg.h`。
+
+**`MySDK/` 要提交进工程的版本库**（不要加进 `.gitignore`）。它是「生成」的，但对 clone
+工程的人而言就是源码本身——类比 CubeMX 生成的 HAL 库与初始化代码，一律入库，保证工程
+自包含、开箱可编译。因此每次 sync 之后，`git status` 里出现的增删改都应随工程一起提交。
 
 ### 1. 工程侧需要准备什么
 
@@ -128,7 +133,8 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 
 ### 5. 注意事项 / 坑
 
-- **别手改 `MySDK/` 内任何文件**：每次拉取整体覆盖。
+- **别手改 `MySDK/` 内任何文件**：每次拉取整体覆盖（要改就改 SDK 源仓再重新拉取）。
+- **拉取后记得提交 `MySDK/`**：它已入库，sync 完 `git status` 会列出增删改，这些变更属于工程的一部分，需一并提交；否则别人 clone 到的仍是旧镜像。
 - **`board_cfg.h` 会被保留**，但前提是它是「真实非空文件」。云端盘（Google Drive 在线-only）
   占位文件会让 `os.path.exists` 误判，已用「读 1 字节」加固；若仍被覆盖，从 SDK 外备份恢复。
 - **`external:lwip` 不进 SDK**：`protocols.wol` 依赖 lwIP，属 CubeMX Middlewares，工程侧提供。

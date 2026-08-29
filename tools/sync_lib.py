@@ -231,6 +231,7 @@ def main():
     stamp = dest / "_sdk_sync.txt"
     stamp.write_text(
         "此目录由 mystm32-sdk/tools/sync_lib.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
+        "本目录随工程一并提交进版本库（不要 gitignore）：对拿到工程的人它就是源码的一部分。\n"
         f"SDK 版本 : {manifest['sdk']['version']}\n"
         f"拉取时间 : {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
         f"模块清单 : {', '.join(closure)}\n",
@@ -238,6 +239,7 @@ def main():
     )
     print(f"  [ok] 戳: {stamp}")
     print("完成。")
+    print(f"提示: {dest.name}/ 需随工程提交（不 gitignore），请检查 git status 后一并 commit。")
 
 
 if __name__ == "__main__":
