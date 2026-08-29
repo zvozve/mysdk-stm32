@@ -45,7 +45,9 @@ void heart_beat_run(void) {
     }
 
     // 2. 喂看门狗（句柄由工程注入；NULL 或模块未启用时 oop_iwdg_refresh 为空操作）
+#if HEART_BEAT_IWDG_ENABLE
     oop_iwdg_refresh(g_hiwdg);
+#endif
 }
 
 /**

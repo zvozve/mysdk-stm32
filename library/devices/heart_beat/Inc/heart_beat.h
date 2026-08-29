@@ -10,7 +10,24 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "oop_gpio_drv.h"
-#include "oop_iwdg_drv.h"   /* IWDG_HandleTypeDef（含未启用时的前置声明） */
+
+#ifdef MB_BOARD_CFG
+#include "board_cfg.h"   // 工程板级绑定：仅读取功能开关宏
+#endif
+
+#ifndef HEART_BEAT_IWDG_ENABLE
+    #ifdef BOARD_HEART_IWDG_ENABLE
+        #define HEART_BEAT_IWDG_ENABLE   BOARD_HEART_IWDG_ENABLE
+    #else
+        #define HEART_BEAT_IWDG_ENABLE   1
+    #endif
+#endif
+
+#if HEART_BEAT_IWDG_ENABLE
+#include "oop_iwdg_drv.h"   // 提供 IWDG_HandleTypeDef 与 oop_iwdg_refresh
+#else
+typedef struct __IWDG_HandleTypeDef IWDG_HandleTypeDef;  // 禁用时仅前向声明，去掉对 HAL IWDG 的依赖
+#endif
 
 /**
  * @brief   初始化心跳（注入 LED 引脚与看门狗句柄，SDK 不记录任何具体 IO/句柄）
