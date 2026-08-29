@@ -73,20 +73,33 @@ extern "C" {
 
 // ===========================
 
-// 传输开关（文件内宏门控，配合 CMake 统一引入所有源文件；带 #ifndef 守卫，可被 CMake -D 覆盖）
+// 传输开关（文件内宏门控，配合 CMake 统一引入所有源文件）
+// 优先级：CMake -D 显式覆盖  >  board_cfg.h(BOARD_MODBUS_*_ENABLE)  >  SDK 安全默认
+//   - 工程在 CMake 定义 MB_BOARD_CFG 并把 board_cfg.h 目录加入包含路径后，
+//     本头读取 BOARD_MODBUS_RTU_ENABLE / BOARD_MODBUS_TCP_ENABLE。
+//   - 未启用 MB_BOARD_CFG（如 SDK 独立编译 / 单测）时走下方安全默认：
+//     RTU 默认开（仅依赖 UART，无外部栈），TCP 默认关（依赖 LwIP，无网口板不应编入）。
 
 // ===========================
 
+#ifdef MB_BOARD_CFG
+#include "board_cfg.h"   // 工程板级绑定：仅读取功能开关宏，不引用任何具体引脚/句柄
+#endif
+
 #ifndef MODBUS_ENABLE_RTU
-
-#define MODBUS_ENABLE_RTU   0
-
+    #ifdef BOARD_MODBUS_RTU_ENABLE
+        #define MODBUS_ENABLE_RTU    BOARD_MODBUS_RTU_ENABLE
+    #else
+        #define MODBUS_ENABLE_RTU    1
+    #endif
 #endif
 
 #ifndef MODBUS_ENABLE_TCP
-
-#define MODBUS_ENABLE_TCP   1
-
+    #ifdef BOARD_MODBUS_TCP_ENABLE
+        #define MODBUS_ENABLE_TCP    BOARD_MODBUS_TCP_ENABLE
+    #else
+        #define MODBUS_ENABLE_TCP    0
+    #endif
 #endif
 
 

@@ -105,6 +105,13 @@ BOARD_CFG_TEMPLATE = """\
 extern "C" {
 #endif
 
+/* ========== 功能开关（驱动读取：决定编译哪些传输/外设；与绑定区解耦） ========== */
+/* 这些宏被 SDK 头（modbus_core.h / heart_beat.h）在 MB_BOARD_CFG 下读取；
+ * 也可被 CMake -D 显式覆盖（优先级更高）。无外部依赖的传输默认开，依赖外部栈的默认关。 */
+#define BOARD_MODBUS_RTU_ENABLE   1      /* RTU 串行传输（仅依赖 UART） */
+#define BOARD_MODBUS_TCP_ENABLE   0      /* TCP 传输：需要 LwIP 栈；无网口板保持 0 */
+#define BOARD_HEART_IWDG_ENABLE   1      /* 心跳喂狗：无独立看门狗设 0 */
+
 /* ========== 绑定区（按实际板卡填写） ========== */
 
 /* TODO: 示例——红外接收 1838B：引脚 + 1ms 节拍 TIM 句柄 */
