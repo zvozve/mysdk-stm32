@@ -3,8 +3,13 @@
 
 #define TM8211_PI 3.1415926f
 
-/* 单实例：TM8211_Init 时登记，HAL I2S 回调据此派发（与 oop_uart 的 HAL_UART_*Callback 桥接一致） */
-static TM8211_DeviceTypeDef *s_tm8211_dev = NULL;
+/* DMA 整帧发送完成回调（经 oop_i2s 桥接派发，device 层不直调 HAL） */
+static void tm8211_on_tx_cplt(TM8211_DeviceTypeDef *dev);
+
+static void tm8211_tx_cplt_trampoline(void *arg)
+{
+    tm8211_on_tx_cplt((TM8211_DeviceTypeDef *)arg);
+}
 
 /* 按当前 freq/amp/volt_coeff 重算一帧正弦波写入 buf */
 static void tm8211_gen_wave(TM8211_DeviceTypeDef *dev)
@@ -28,14 +33,16 @@ static void tm8211_gen_wave(TM8211_DeviceTypeDef *dev)
 
 void TM8211_Init(
     TM8211_DeviceTypeDef *dev,
-    I2S_HandleTypeDef *hi2s,
+    oop_i2s_dev_t *i2s,
     TM8211_BufferTypeDef *buf,
     uint32_t sample_rate,
     float volt_coeff
 )
 {
-    s_tm8211_dev = dev;
-    dev->hi2s = hi2s;
+    /* 调用方须已 oop_i2s_init(i2s, &hi2sX)，本驱动只登记发送完成回调 */
+    dev->i2s = i2s;
+    oop_i2s_set_tx_cplt_cb(dev->i2s, tm8211_tx_cplt_trampoline, dev);
+
     dev->buf = buf;
     dev->sample_rate = sample_rate;
     dev->volt_coeff = volt_coeff;
@@ -48,7 +55,7 @@ void TM8211_Init(
 void TM8211_Start(TM8211_DeviceTypeDef *dev)
 {
     tm8211_gen_wave(dev);
-    HAL_I2S_Transmit_DMA(dev->hi2s, (uint16_t *)dev->buf->buf, dev->dma_len);
+    oop_i2s_transmit_dma(dev->i2s, (uint16_t *)dev->buf->buf, dev->dma_len);
 }
 
 void TM8211_SetFreqAmp(TM8211_DeviceTypeDef *dev, float freq, float amp)
@@ -70,7 +77,7 @@ static void tm8211_on_tx_cplt(TM8211_DeviceTypeDef *dev)
 {
     if (dev->update_flag == UPDATE_NONE) return;
 
-    HAL_I2S_DMAStop(dev->hi2s);
+    oop_i2s_stop_dma(dev->i2s);
 
     if (dev->update_flag == UPDATE_AMP)
     {
@@ -92,14 +99,6 @@ static void tm8211_on_tx_cplt(TM8211_DeviceTypeDef *dev)
         tm8211_gen_wave(dev);
     }
 
-    HAL_I2S_Transmit_DMA(dev->hi2s, (uint16_t *)dev->buf->buf, dev->dma_len);
+    oop_i2s_transmit_dma(dev->i2s, (uint16_t *)dev->buf->buf, dev->dma_len);
     dev->update_flag = UPDATE_NONE;
-}
-
-/* HAL I2S 发送完成回调（全局弱符号，由本驱动桥接，按句柄派发到登记的设备） */
-void HAL_I2S_TxCpltCallback(I2S_HandleTypeDef *hi2s)
-{
-    if (s_tm8211_dev && hi2s == s_tm8211_dev->hi2s) {
-        tm8211_on_tx_cplt(s_tm8211_dev);
-    }
 }
