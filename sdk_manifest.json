@@ -269,6 +269,38 @@
       ]
     },
     {
+      "id": "devices.key",
+      "name": "key",
+      "layer": "devices",
+      "category": "input",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "devices/key",
+      "description": "通用按键驱动（轮询扫描 + 防抖 + 短按/长按回调）。引脚由 board_cfg 注入 gpio_dev_t，回调由应用注册；不含任何具体 IO / 应用全局。取代旧 Hardware/KEY（去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）。",
+      "depends": ["chip.oop_gpio"],
+      "backends": ["chip.oop_gpio"],
+      "files": [
+        "devices/key/Inc/key_driver.h",
+        "devices/key/Src/key_driver.c"
+      ]
+    },
+    {
+      "id": "devices.tm8211",
+      "name": "tm8211",
+      "layer": "devices",
+      "category": "audio",
+      "version": "V1.0",
+      "updated": "2026-08-29",
+      "path": "devices/tm8211",
+      "description": "TM8211 双 16-bit DAC 驱动（I2S+DMA 后端，正弦波发生器）。I2S 句柄由调用方注入、缓冲由调用方提供；浮点 TM8211_SetFreqAmp 实时调频调幅。HAL_I2S_TxCpltCallback 桥接派发（与 oop_uart 一致）。取代旧 Hardware/TM8211 的 I2S_DMA 版（去 extern tm8211 全局与 test 任务）。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "devices/tm8211/Inc/tm8211.h",
+        "devices/tm8211/Src/tm8211.c"
+      ]
+    },
+    {
       "id": "middleware.SEGGER_RTT",
       "name": "SEGGER_RTT",
       "layer": "middleware",
@@ -386,6 +418,6 @@
     "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/oop_audit.py。",
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
-    "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）改造为注入引脚 + 坐 oop_i2c，已入库。DROP：BSP/bsp_dwt|bsp_gpio|bsp_uart（已被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复，仅 _Log.h 回退集中 tag，已冗余）、Hardware/KEY|TM8211（板级代码，不入 SDK）、Protocols/IIC（与 chip.oop_i2c 重复的软 I2C，单源保留 oop_i2c）。"
+    "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。"
   ]
 }
