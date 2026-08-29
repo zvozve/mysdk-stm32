@@ -120,24 +120,14 @@
 #endif
 #define HEX_LOG(prefix, data, len) HEX_PRINT(HEX_LOG_ENABLE, prefix, data, len)
 
-#ifndef APP_LOG_ENABLE
-    #define APP_LOG_ENABLE     1
-#endif
-#define APP_LOG(fmt, ...)     RTT_LOG_TAG(APP_LOG_ENABLE,    "APP",    fmt, ##__VA_ARGS__)
-
-#ifndef UART_LOG_ENABLE
-    #define UART_LOG_ENABLE    1
-#endif
-#define UART_LOG(fmt, ...)    RTT_LOG_TAG(UART_LOG_ENABLE,   "UART",   fmt, ##__VA_ARGS__)
-
-#ifndef MODBUS_LOG_ENABLE
-    #define MODBUS_LOG_ENABLE  1
-#endif
-#define MODBUS_LOG(fmt, ...)  RTT_LOG_TAG(MODBUS_LOG_ENABLE, "MODBUS", fmt, ##__VA_ARGS__)
-
-#ifndef HMI_LOG_ENABLE
-    #define HMI_LOG_ENABLE     1
-#endif
-#define HMI_LOG(fmt, ...)     RTT_LOG_TAG(HMI_LOG_ENABLE,    "HMI",    fmt, ##__VA_ARGS__)
+// ============================================================
+// 模块专属标签（APP / UART / MODBUS / HMI 等）不再集中在此处定义，
+// 否则本文件会随项目增多无限膨胀。请在各模块「最底层」头文件内自行定义，例如：
+//   - MODBUS_LOG  -> library/protocols/Modbus/Inc/modbus_core.h
+//   - UART_LOG    -> library/chip/oop_uart/Inc/oop_uart_drv.h
+//   - APP_LOG     -> 工程 User/Inc/app_main.h（应用层）
+//   - HMI_LOG     -> 工程 HMI 模块头文件（本工程无 HMI 模块，未定义）
+// 模块头只需 #include "SEGGER_RTT_Log.h" 即可复用 RTT_LOG_TAG 引擎。
+// ============================================================
 
 #endif // __SEGGER_RTT_LOG_H

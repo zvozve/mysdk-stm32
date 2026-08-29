@@ -26,10 +26,19 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include "hal_platform.h"   /* STM32 系列 HAL 统一入口（移植层） */
+#include "SEGGER_RTT_Log.h"   /* 复用 RTT_LOG_TAG；UART 驱动专属标签在此定义 */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+// ===========================
+// UART 驱动专属日志标签
+// ===========================
+#ifndef UART_LOG_ENABLE
+    #define UART_LOG_ENABLE    1
+#endif
+#define UART_LOG(fmt, ...)    RTT_LOG_TAG(UART_LOG_ENABLE,   "UART",   fmt, ##__VA_ARGS__)
 
 #define UART_DRV_BUF_SIZE   256
 
