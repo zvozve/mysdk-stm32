@@ -137,7 +137,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
 - **路径风格**：sync 命令用 Windows 风格 `C:/...`，避免 Git Bash 把 `/c/...` 解析成 `c:\c\...`。
-- **工程侧一键拉取**：SmartHome 在 `.tool/` 下提供了 `pull_sdk.py` / `pull_sdk.bat` 封装，
+- **工程侧一键拉取**：SmartHome 在 `.sdktool/` 下提供了 `pull_sdk.py` / `pull_sdk.bat` 封装，
   自动定位 `User/sdk.toml` 并调用本脚本，省去手写长命令。
 
 ## 版本变更记录
