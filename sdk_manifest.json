@@ -143,6 +143,21 @@
       ]
     },
     {
+      "id": "chip.oop_i2s",
+      "name": "oop_i2s",
+      "layer": "chip",
+      "category": "i2s",
+      "version": "V1.0",
+      "path": "chip/oop_i2s",
+      "description": "I2S OOP 驱动 HAL 后端（DMA 发送 + 完成回调桥接）。仅本模块（chip 层）直接调用 HAL_I2S_* 与定义 HAL_I2S_TxCpltCallback；device 层（tm8211）只调 oop_i2s_*，不碰 HAL。符合\"仅 chip 用 HAL\"分层铁律。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_i2s/Inc/oop_i2s_drv.h",
+        "chip/oop_i2s/Src/oop_i2s_drv_hal.c"
+      ]
+    },
+    {
       "id": "devices.dht11",
       "name": "dht11",
       "layer": "devices",
@@ -253,19 +268,19 @@
       ]
     },
     {
-      "id": "devices.OLED12864",
-      "name": "OLED12864",
+      "id": "devices.oled12864",
+      "name": "oled12864",
       "layer": "devices",
       "category": "display",
       "version": "V1.0",
       "updated": "2026-08-29",
-      "path": "devices/OLED12864",
+      "path": "devices/oled12864",
       "description": "SSD1306 0.96\" OLED 驱动（仅驱动层 oled_driver，UI/func 应用层不入 SDK），坐 chip.oop_i2c 软总线之上；引脚由调用方注入。取代旧 bsp_i2c 依赖的 Hardware/OLED12864。",
       "depends": ["chip.oop_i2c", "chip.oop_dwt", "middleware.SEGGER_RTT"],
       "backends": ["chip.oop_i2c"],
       "files": [
-        "devices/OLED12864/Inc/oled_driver.h",
-        "devices/OLED12864/Src/oled_driver.c"
+        "devices/oled12864/Inc/oled_driver.h",
+        "devices/oled12864/Src/oled_driver.c"
       ]
     },
     {
@@ -292,9 +307,9 @@
       "version": "V1.0",
       "updated": "2026-08-29",
       "path": "devices/tm8211",
-      "description": "TM8211 双 16-bit DAC 驱动（I2S+DMA 后端，正弦波发生器）。I2S 句柄由调用方注入、缓冲由调用方提供；浮点 TM8211_SetFreqAmp 实时调频调幅。HAL_I2S_TxCpltCallback 桥接派发（与 oop_uart 一致）。取代旧 Hardware/TM8211 的 I2S_DMA 版（去 extern tm8211 全局与 test 任务）。",
-      "depends": ["chip.platform"],
-      "backends": ["hal"],
+      "description": "TM8211 双 16-bit DAC 驱动（I2S+DMA 后端，正弦波发生器）。I2S 外设由调用方经 oop_i2s_dev_t 注入、缓冲由调用方提供；浮点 TM8211_SetFreqAmp 实时调频调幅。DMA 完成回调由 chip/oop_i2s 桥接派发（与 oop_uart 一致），device 层不直调 HAL。取代旧 Hardware/TM8211 的 I2S_DMA 版（去 extern tm8211 全局与 test 任务）。",
+      "depends": ["chip.oop_i2s"],
+      "backends": ["chip.oop_i2s"],
       "files": [
         "devices/tm8211/Inc/tm8211.h",
         "devices/tm8211/Src/tm8211.c"
@@ -392,7 +407,7 @@
       "version": null,
       "path": "protocols/Modbus",
       "description": "Modbus 协议栈（RTU 主/从 + TCP 主/从），UART/LwIP 适配器注入，纯协议层、板无关。",
-      "depends": ["chip.oop_uart", "middleware.SEGGER_RTT", "external:lwip"],
+      "depends": ["chip.oop_uart", "chip.oop_dwt", "middleware.SEGGER_RTT", "external:lwip"],
       "backends": ["uart", "net"],
       "files": [
         "protocols/Modbus/Inc/modbus_core.h",
@@ -418,6 +433,8 @@
     "★ v0.1.1 HAL 泄漏修复：SDK 不再包含任何工程头（main.h / tim.h / gpio.h / usart.h / config_network.h 等），也不引用具体全局句柄（&huart6 / &htim6 / hiwdg / gnetif 等）或 MX 引脚宏（XXX_GPIO_Port / XXX_Pin）。所有具体句柄 / IO / 定时器 / 网口均由调用方（工程 board_cfg）注入；SDK 仅做板无关 OOP 封装。校验见 tools/oop_audit.py。",
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
-    "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。"
+    "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。",
+    "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_1838b/ir_tx/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
+    "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。"
   ]
 }

@@ -61,11 +61,11 @@ extern "C" {
 
 #else
 
-    #include "hal_platform.h"   /* STM32 系列 HAL 统一入口（HAL_GetTick/HAL_Delay） */
+    #include "oop_dwt.h"   /* chip 层时序封装：oop_GetTickMS / oop_DelayMS（不直调 HAL） */
 
-    #define MB_GET_TICK()      HAL_GetTick()
+    #define MB_GET_TICK()      oop_GetTickMS()
 
-    #define MB_Delay_ms(ms)    HAL_Delay(ms)
+    #define MB_Delay_ms(ms)    oop_DelayMS(ms)
 
 #endif
 

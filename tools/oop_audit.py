@@ -9,6 +9,9 @@ oop_audit.py — mystm32-sdk HAL 泄漏检查器
   2. 直接引用具体全局句柄（&huart6 / &htim6 / &hiwdg ...）或 MX 生成的
      引脚宏（XXX_GPIO_Port / XXX_Pin）、MX 初始化函数（MX_xxx_Init）、
      工程全局网口（gnetif）等。
+  3. 在 chip/ 之外的层直接调用 HAL_* 函数或定义 HAL_*Callback。HAL 封装
+     必须下沉 chip/（如 oop_uart / oop_i2s / oop_tim / oop_iwdg），
+     device / protocol 层一律只调 oop_*，不碰 HAL。
 
 具体句柄 / IO / 定时器 / 网口一律由调用方（工程 board_cfg）注入。
 
@@ -63,6 +66,13 @@ FORBIDDEN_PATTERNS = [
 INCLUDE_RE = re.compile("|".join(FORBIDDEN_INCLUDES))
 PATTERN_RE = [(re.compile(p), why) for p, why in FORBIDDEN_PATTERNS]
 
+# 仅 chip/ 层允许直接调用 HAL_* 函数 / 定义 HAL_*Callback；device/protocol 层禁止
+# （HAL 封装必须下沉 chip/，如 oop_uart/oop_i2s/oop_tim/oop_iwdg）
+HAL_DIRECT_RE = [
+    (re.compile(r'\bHAL_[A-Z][A-Za-z0-9_]*\s*\('),
+     "非 chip 层直接调用 HAL_* 函数（HAL 封装应下沉 chip/，如 oop_uart/oop_i2s/oop_tim/oop_iwdg）"),
+]
+
 # 去掉 C 注释后再查具体句柄/IO，避免注释里的举例/说明被误报
 _COMMENT_RE = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
 
@@ -72,7 +82,7 @@ def _strip_comments(text):
     return _COMMENT_RE.sub("", text)
 
 
-def scan_file(path):
+def scan_file(path, allow_hal=False):
     hits = []
     try:
         with open(path, "r", encoding="utf-8", errors="replace") as f:
@@ -87,16 +97,23 @@ def scan_file(path):
         for rx, why in PATTERN_RE:
             if rx.search(line):
                 hits.append((i, line.strip(), why))
+        if not allow_hal:
+            for rx, why in HAL_DIRECT_RE:
+                if rx.search(line):
+                    hits.append((i, line.strip(), why))
     return hits
 
 
 def main():
     strict = "--strict" in sys.argv[1:]
     total = 0
+    # 仅 chip/ 层允许直接调用 HAL；devices/ 与 protocols/ 禁止直调 HAL_*
+    _LAYER = {"library/chip": "chip", "library/devices": "devices", "library/protocols": "protocols"}
     for d in SCAN_DIRS:
         base = os.path.join(ROOT, d)
         if not os.path.isdir(base):
             continue
+        allow_hal = (_LAYER.get(d) == "chip")
         for root, _dirs, files in os.walk(base):
             # 跳过第三方
             if "middleware" in root.replace(ROOT, ""):
@@ -106,7 +123,7 @@ def main():
                     continue
                 if os.path.join(root, fn).replace(ROOT, "").replace("\\", "/").startswith("/library/protocols/cJSON"):
                     continue
-                hits = scan_file(os.path.join(root, fn))
+                hits = scan_file(os.path.join(root, fn), allow_hal)
                 if hits:
                     rel = os.path.relpath(os.path.join(root, fn), ROOT)
                     print("[LEAK] %s" % rel)
