@@ -27,6 +27,54 @@ static uart_drv_t* uart_drv_find(UART_HandleTypeDef *huart) {
     return NULL;
 }
 
+// ===========================
+// TX 拥有者映射（解决"同 huart 多 uart_drv_t 实例"的发送完成回调歧义）
+//   一个物理 UART 上可能同时注册多个 uart_drv_t（例如同一 RS485 总线的
+//   主机实例 + 从机实例）。HAL 的 DMA 发送完成回调只携带 huart，
+//   若用 uart_drv_find(huart) 返回"第一个匹配实例"，会误清其它实例的
+//   TX_BUSY，导致其中一方发送永远返回 -2。
+//   因此：uart_drv_send 启动 DMA 前把"当前 TX 拥有者"记入下表；
+//         uart_drv_on_tx_done 直接取出该拥有者，避免歧义。
+// ===========================
+#define UART_DRV_MAX_HUARTS   8
+static struct {
+    UART_HandleTypeDef *huart;
+    uart_drv_t *owner;   /* 当前正在该 huart 上发送的实例，NULL=空闲 */
+} s_tx_owner[UART_DRV_MAX_HUARTS];
+
+/* 发送启动时登记当前 TX 拥有者（同一 huart 同一时刻仅一个） */
+static void uart_drv_set_tx_owner(UART_HandleTypeDef *huart, uart_drv_t *drv) {
+    for (int i = 0; i < UART_DRV_MAX_HUARTS; i++) {
+        if (s_tx_owner[i].huart == huart) { s_tx_owner[i].owner = drv; return; }
+    }
+    for (int i = 0; i < UART_DRV_MAX_HUARTS; i++) {
+        if (s_tx_owner[i].huart == NULL) {
+            s_tx_owner[i].huart = huart;
+            s_tx_owner[i].owner = drv;
+            return;
+        }
+    }
+}
+
+/* 发送完成（或中止）时取回并清空 TX 拥有者 */
+static uart_drv_t* uart_drv_take_tx_owner(UART_HandleTypeDef *huart) {
+    for (int i = 0; i < UART_DRV_MAX_HUARTS; i++) {
+        if (s_tx_owner[i].huart == huart) {
+            uart_drv_t *owner = s_tx_owner[i].owner;
+            s_tx_owner[i].owner = NULL;
+            return owner;
+        }
+    }
+    return NULL;
+}
+
+/* 仅清空（中止/复位中途发送时调用，避免残留脏拥有者） */
+static void uart_drv_clear_tx_owner(UART_HandleTypeDef *huart) {
+    for (int i = 0; i < UART_DRV_MAX_HUARTS; i++) {
+        if (s_tx_owner[i].huart == huart) { s_tx_owner[i].owner = NULL; return; }
+    }
+}
+
 /* 调试用：按注册顺序返回实例标签（非硬件编号），不依赖任何具体句柄 */
 const char* uart_drv_get_name(UART_HandleTypeDef *huart) {
     for (int i = 0; i < s_drv_count; i++) {
@@ -114,6 +162,7 @@ int uart_drv_reconfig(uart_drv_t *drv, const uart_drv_cfg_t *cfg) {
     UART_HandleTypeDef *huart = drv->huart;
     
     HAL_UART_DMAStop(huart);
+    uart_drv_clear_tx_owner(huart);   // ★ 中止中途发送，撤销 TX 拥有者登记 ★
     HAL_UART_Abort(huart);
     HAL_UART_DeInit(huart);
     
@@ -158,17 +207,34 @@ int uart_drv_send(uart_drv_t *drv, const uint8_t *data, uint16_t len) {
     if (drv->state == UART_DRV_TX_BUSY) return -2;
     if (drv->state == UART_DRV_DATA_READY && drv->locked) return -3;
     
-    HAL_UART_AbortReceive(drv->huart);
-    
+    // ★ 关键修复：原代码用 HAL_UART_AbortReceive（异步，会把 gState 置为 BUSY_ABORT），
+    //   紧接着的 HAL_UART_Transmit_DMA/IT 因 gState!=READY 返回 HAL_BUSY，
+    //   发送 DMA 从未启动 → TxCplt 永不触发 → drv->state 永久卡在 TX_BUSY → 后续全部 -2。
+    //   改用同步的 HAL_UART_DMAStop，立即把 gState 拉回 READY，发送才能正常启动。★
+    HAL_UART_DMAStop(drv->huart);
+
     memcpy(drv->tx_buf, data, len);
-    
+
     rs485_tx_enable(drv);
     drv->state = UART_DRV_TX_BUSY;
-    
+    uart_drv_set_tx_owner(drv->huart, drv);   // ★ 登记 TX 拥有者，供完成回调精确路由 ★
+
+    HAL_StatusTypeDef st;
     if (drv->huart->hdmatx != NULL) {
-        HAL_UART_Transmit_DMA(drv->huart, drv->tx_buf, len);
+        st = HAL_UART_Transmit_DMA(drv->huart, drv->tx_buf, len);
     } else {
-        HAL_UART_Transmit_IT(drv->huart, drv->tx_buf, len);
+        st = HAL_UART_Transmit_IT(drv->huart, drv->tx_buf, len);
+    }
+
+    /* ★ 若启动失败（极端情况下 gState 仍 BUSY），回滚状态并回报错误，
+     *   避免 drv->state 永久卡在 TX_BUSY 导致后续所有发送返回 -2 ★ */
+    if (st != HAL_OK) {
+        SYS_LOG("[UART] TX start FAILED hal=%d", (int)st);
+        uart_drv_clear_tx_owner(drv->huart);   // ★ 启动失败，撤销拥有者登记 ★
+        rs485_rx_enable(drv);
+        drv->state = UART_DRV_IDLE;
+        start_rx(drv);
+        return -4;
     }
     return 0;
 }
@@ -223,6 +289,7 @@ uart_drv_state_t uart_drv_get_state(uart_drv_t *drv) {
 
 void uart_drv_reset(uart_drv_t *drv) {
     HAL_UART_DMAStop(drv->huart);
+    uart_drv_clear_tx_owner(drv->huart);   // ★ 复位中途发送，撤销 TX 拥有者登记 ★
     __HAL_UART_CLEAR_FLAG(drv->huart, UART_FLAG_ORE | UART_FLAG_FE | UART_FLAG_NE);
     
     drv->state = UART_DRV_IDLE;
@@ -242,15 +309,24 @@ void uart_drv_get_cfg(uart_drv_t *drv, uart_drv_cfg_t *cfg) {
 // ===========================
 
 void uart_drv_on_tx_done(UART_HandleTypeDef *huart) {
-    uart_drv_t *drv = uart_drv_find(huart);
-    if (drv == NULL || drv->state != UART_DRV_TX_BUSY) return;
-    
+    // ★ 直接取当前 TX 拥有者，避免同 huart 多实例的完成回调歧义 ★
+    uart_drv_t *drv = uart_drv_take_tx_owner(huart);
+    if (drv == NULL) {
+        SYS_LOG("[UART] tx_done NO-OWNER (huart=%p)", (void*)huart);
+        return;
+    }
+    if (drv->state != UART_DRV_TX_BUSY) {
+        SYS_LOG("[UART] tx_done IGNORED (state=%d, not TX_BUSY)", (int)drv->state);
+        return;
+    }
+
     drv->state = UART_DRV_IDLE;
     rs485_rx_enable(drv);
-    
+
     if (drv->on_sent) drv->on_sent(drv);
-    
+
     start_rx(drv);
+    SYS_LOG("[UART] tx_done OK (state->IDLE)");
 }
 
 void uart_drv_on_idle(UART_HandleTypeDef *huart) {
