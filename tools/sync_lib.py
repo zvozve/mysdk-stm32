@@ -10,7 +10,7 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
     sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sync_lib.py 自动以其自身所在目录定位仓库
     dest       = "../MySDK"                # 拉取目标，相对 sdk.toml 所在目录(User/)解析；
                                             #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
-    board_cfg  = "board_cfg.h"             # 绑定文件，相对 User/ 解析（即 User/board_cfg.h）；
+    board_cfg  = "board_cfg.h"             # 绑定文件，相对 sdk.toml 所在目录 User/ 解析；
                                             #   已存在则不覆盖（工程资产）
 
     [modules]                              # 显式选择；depends 闭包自动补全
@@ -28,8 +28,11 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
 
 import argparse
 import datetime
+import os
 import shutil
+import stat
 import sys
+import time
 from pathlib import Path
 
 try:
@@ -69,6 +72,38 @@ def resolve_closure(manifest: dict, selected: list) -> list:
     return order
 
 
+def rmtree_robust(path: Path, tries: int = 6, base_delay: float = 0.3) -> bool:
+    """带重试的 rmtree。
+
+    Windows 上目录常被瞬时占用（云盘同步 / 索引器 / 杀毒扫描 / 资源管理器），
+    裸 shutil.rmtree 一次 PermissionError 就会让整次拉取失败。这里：
+      1) 删前清只读属性（云端盘占位文件常带 R）
+      2) 失败后整体重试并退避等待
+    返回 True=删除成功（或本来就不存在），False=多次重试仍失败（调用方决定降级）。
+    """
+    if not path.exists():
+        return True
+
+    def _unlock_and_retry(func, p, exc):
+        # 清只读/系统属性后原操作重试一次；仍失败则抛出，交给外层整体重试
+        try:
+            os.chmod(p, stat.S_IWRITE | stat.S_IREAD)
+        except OSError:
+            pass
+        func(p)
+
+    last = None
+    for i in range(tries):
+        try:
+            shutil.rmtree(path, onerror=_unlock_and_retry)
+            return True
+        except OSError as e:
+            last = e
+            time.sleep(base_delay * (i + 1))
+    print(f"  [warn] 删除失败（被占用），已跳过: {path}  <- {last}")
+    return False
+
+
 def mirror_module(sdk_root: Path, mod: dict, dest_root: Path, dry: bool):
     src = sdk_root / "library" / mod["path"]
     dst = dest_root / mod["path"]
@@ -78,9 +113,22 @@ def mirror_module(sdk_root: Path, mod: dict, dest_root: Path, dry: bool):
         print(f"  [dry] {mod['id']:24s} -> {dst}")
         return
     if dst.exists():
-        shutil.rmtree(dst)
+        rmtree_robust(dst)
     dst.parent.mkdir(parents=True, exist_ok=True)
     shutil.copytree(src, dst)
+
+
+def prune_stale(dest: Path, keep_paths: set):
+    """删掉 dest 下不属于本次闭包的模块目录（曾选过、后取消的模块）。
+
+    与「先删整个 dest」等价，但失败只告警不中断：单个目录被占用不会毁掉整次拉取。
+    """
+    for layer in sorted(p for p in dest.iterdir() if p.is_dir()):
+        for mod_dir in sorted(p for p in layer.iterdir() if p.is_dir()):
+            rel = f"{layer.name}/{mod_dir.name}"
+            if rel not in keep_paths:
+                if rmtree_robust(mod_dir):
+                    print(f"  [del] 移除不再选择的模块: {rel}")
 
 
 BOARD_CFG_TEMPLATE = """\
@@ -168,7 +216,8 @@ def main():
 
     project_root = toml_path.parent
     dest = project_root / cfg.get("dest", "MySDK")
-    board_cfg = project_root / cfg.get("board_cfg", "User/board_cfg.h")
+    # project_root 就是 sdk.toml 所在目录（User/），故默认值不带 User/ 前缀
+    board_cfg = project_root / cfg.get("board_cfg", "board_cfg.h")
 
     selected = [k for k, v in cfg.get("modules", {}).items() if v]
     if not selected:
@@ -191,15 +240,19 @@ def main():
                 mirror_module(sdk_root, m, dest, dry=True)
         return
 
-    # 镜像同步：先清掉整个 dest，再拷贝闭包（保证 SDK 单源真相）
-    if dest.exists():
-        shutil.rmtree(dest)
-    dest.mkdir(parents=True)
+    # 镜像同步：覆盖式拷贝闭包，再清理不再选择的模块（保证 SDK 单源真相）
+    # 注：不再「先删整个 dest」——云端盘/索引器瞬时占用会让整次拉取失败；
+    #     改为逐模块覆盖 + 收尾清理孤儿，局部被占用只告警不中断。
+    dest.mkdir(parents=True, exist_ok=True)
 
+    keep_paths = set()
     for m in manifest["modules"]:
         if m["id"] in closure:
+            keep_paths.add(m["path"])
             mirror_module(sdk_root, m, dest, dry=False)
             print(f"  [ok] {m['id']}")
+
+    prune_stale(dest, keep_paths)
 
     # SDK 组件构建脚本（随拉取更新，工程侧不维护）
     sdk_cmakelists = sdk_root / "CMakeLists.txt"
