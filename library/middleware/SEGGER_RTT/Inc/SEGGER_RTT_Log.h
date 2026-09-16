@@ -122,13 +122,19 @@
 #endif
 #define HEX_LOG(prefix, data, len) HEX_PRINT(HEX_LOG_ENABLE, prefix, data, len)
 
+#ifndef HMI_LOG_ENABLE
+    #define HMI_LOG_ENABLE     0
+#endif
+#define HMI_LOG(fmt, ...)     RTT_LOG_TAG(HMI_LOG_ENABLE,    "HMI",    fmt, ##__VA_ARGS__)
+
 // ============================================================
 // 模块专属标签（APP / UART / MODBUS / HMI 等）不再集中在此处定义，
 // 否则本文件会随项目增多无限膨胀。请在各模块「最底层」头文件内自行定义，例如：
 //   - MODBUS_LOG  -> library/protocols/Modbus/Inc/modbus_core.h
 //   - UART_LOG    -> library/chip/oop_uart/Inc/oop_uart_drv.h
 //   - APP_LOG     -> 工程 User/Inc/app_main.h（应用层）
-//   - HMI_LOG     -> 工程 HMI 模块头文件（本工程无 HMI 模块，未定义）
+// 注：HMI_LOG 因 delta_dop_107（HMI 屏写出驱动）依赖本标签，已回到此处定义，
+//     保证 driver 与其调用方的 tag 一致（其它模块专属标签仍在各自模块头定义）。
 // 模块头只需 #include "SEGGER_RTT_Log.h" 即可复用 RTT_LOG_TAG 引擎。
 // ============================================================
 
