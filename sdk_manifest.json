@@ -447,22 +447,6 @@
       ]
     },
     {
-      "id": "devices.sigout",
-      "name": "sigout",
-      "layer": "devices",
-      "category": "output",
-      "version": "V1.0",
-      "updated": "2026-09-16",
-      "path": "devices/sigout",
-      "description": "外部状态输出（SEL1/2 电平 + OUT1..4 到位/反弹脉冲），引脚映射由 SIGOUT_Init(map) 注入，GPIO 走 oop_gpio、计时走 oop_dwt。由工程 Hardware/sigout 迁入。",
-      "depends": ["chip.oop_gpio", "chip.oop_dwt"],
-      "backends": ["chip.oop_gpio"],
-      "files": [
-        "devices/sigout/Inc/sigout.h",
-        "devices/sigout/Src/sigout.c"
-      ]
-    },
-    {
       "id": "middleware.SEGGER_RTT",
       "name": "SEGGER_RTT",
       "layer": "middleware",
@@ -584,6 +568,7 @@
     "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_1838b/ir_tx/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
     "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
     "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。",
-    "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。"
+    "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。",
+    "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，Modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。"
   ]
 }
