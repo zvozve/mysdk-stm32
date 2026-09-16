@@ -411,6 +411,26 @@
       ]
     },
     {
+      "id": "devices.elecMgt",
+      "name": "elecMgt",
+      "layer": "devices",
+      "category": "actuator",
+      "version": "V1.0",
+      "updated": "2026-09-17",
+      "path": "devices/elecMgt",
+      "description": "电磁铁动作管理器（core 生成引擎 + step 参数→帧 + pid 预留），坐 chip.hbridge（突发 DMA 波形）与 chip.oop_dwt（计时）之上；TIM/DMA 句柄由工程经 EM_Init(mode, &em_hw_t) 注入，SDK 内不 extern 任何全局句柄。frame→point 双缓冲、保持规则（磁铁位置 + 触发方向）、动作锁定（反弹错误）均为纯逻辑，板无关。由工程 Hardware/elecMgt 迁入。",
+      "depends": ["chip.hbridge", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "backends": ["chip.hbridge"],
+      "files": [
+        "devices/elecMgt/Inc/elecMgt_core.h",
+        "devices/elecMgt/Inc/elecMgt_step.h",
+        "devices/elecMgt/Inc/elecMgt_pid.h",
+        "devices/elecMgt/Src/elecMgt_core.c",
+        "devices/elecMgt/Src/elecMgt_step.c",
+        "devices/elecMgt/Src/elecMgt_pid.c"
+      ]
+    },
+    {
       "id": "devices.sigout",
       "name": "sigout",
       "layer": "devices",
