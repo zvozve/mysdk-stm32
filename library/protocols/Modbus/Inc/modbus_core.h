@@ -39,7 +39,9 @@ extern "C" {
 
 // ===========================
 
-#define MB_USE_RTOS       1    // 0: 裸机, 1: RTOS
+#ifndef MB_USE_RTOS
+    #define MB_USE_RTOS       1    // 0: 裸机, 1: RTOS（工程可 -DMB_USE_RTOS=0 切裸机，走 oop_dwt 时序，不影响默认 RTOS 消费方）
+#endif
 
 
 

@@ -1,7 +1,9 @@
 #ifndef __SEGGER_RTT_LOG_H
 #define __SEGGER_RTT_LOG_H
 
-#define RTT_USE_RTOS       1
+#ifndef RTT_USE_RTOS
+    #define RTT_USE_RTOS       1   /* 默认 RTOS；裸机工程可 -DRTT_USE_RTOS=0 走 HAL_GetTick() 分支 */
+#endif
 
 #include <stdint.h>
 
