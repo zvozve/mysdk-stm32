@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.3.1",
+    "version": "0.4.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -96,6 +96,22 @@
       ]
     },
     {
+      "id": "chip.oop_dma",
+      "name": "oop_dma",
+      "layer": "chip",
+      "category": "dma",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "chip/oop_dma",
+      "description": "DMA OOP 驱动封装（HAL_DMA_* 唯一入口）：突发/单次传输启动（IT）、中止、完成回调注册（内部表关联 cb+user，ISR 查表分发）。供 chip.hbridge 等模块使用，device 层禁止直调 HAL_DMA_* 或裸写 DMA_Channel 的 CCR/CPAR/CMAR/CNDTR。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_dma/Inc/oop_dma_drv.h",
+        "chip/oop_dma/Src/oop_dma_drv.c"
+      ]
+    },
+    {
       "id": "chip.oop_iwdg",
       "name": "oop_iwdg",
       "layer": "chip",
@@ -180,8 +196,8 @@
       "version": "V1.0",
       "updated": "2026-09-16",
       "path": "chip/hbridge",
-      "description": "H 桥驱动（TIM1/TIM8 突发 DMA 波形 + 死区 + 同步），坐 HAL_TIM_*/HAL_DMA_* 之上；应用只给 {state,duty} 帧，内部转 4-CH CCR，构造上杜绝直通。由工程 Hardware/hbridge 迁入。",
-      "depends": ["chip.platform"],
+      "description": "H 桥驱动（TIM1/TIM8 突发 DMA 波形 + 死区 + 同步）；TIM 寄存器与 DMA 全 funnel 到 chip.oop_tim / chip.oop_dma（HAL 唯一入口），本模块不再直戳 TIMx->* 或调用 HAL_TIM_*/HAL_DMA_*。应用只给 {state,duty} 帧，内部转 4-CH CCR，构造上杜绝直通。由工程 Hardware/hbridge 迁入。",
+      "depends": ["chip.platform", "chip.oop_tim", "chip.oop_dma"],
       "backends": ["hal"],
       "files": [
         "chip/hbridge/Inc/hbridge.h",
@@ -531,6 +547,7 @@
     "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。",
     "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_1838b/ir_tx/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
     "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
-    "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。"
+    "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。",
+    "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。"
   ]
 }
