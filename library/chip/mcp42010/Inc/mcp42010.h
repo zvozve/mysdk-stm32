@@ -3,8 +3,8 @@
  *
  * SDK 版：由工程 Hardware/mcp42010 迁入 chip 层。去掉对 CubeMX main 头
  * 与 extern hspi1 硬编码的依赖，改为 MCP42010_Init(hspi, cs_port, cs_pin)
- * 注入 SPI 句柄与 CS 引脚（板级绑定）。直调 HAL_SPI_*/HAL_GPIO_* 合法
- * （chip 层）。MCP42010_* 名称保持，工程调用点仅增加一次 Init 调用。
+ * 注入 SPI 句柄与 CS 引脚（板级绑定）。直调 HAL_SPIxx / HAL_GPIOxx 合法
+ * （chip 层）。MCP42010 前缀名称保持，工程调用点仅增加一次 Init 调用。
  * ============================================================ */
 
 #ifndef __MCP42010_H__
