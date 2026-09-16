@@ -7,7 +7,7 @@
  *            的快照（raw / mV）存好，供中断回调消费者在任务上下文安全读取；
  *          - 通过 OOP_ADC_SetBatchCb() 通知上层"一批评测完成"，由上层决定
  *            如何聚合（滤波/入环/写出），避免在中断里做重活。
- *          chip 层直调 HAL_ADC_*/HAL_DMA_* 合法。
+ *          chip 层直调 HAL_ADCxx / HAL_DMAxx 合法。
  * @version V2.0
  * @date    2026-08-14
  */

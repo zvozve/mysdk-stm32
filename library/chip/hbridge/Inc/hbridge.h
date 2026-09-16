@@ -25,8 +25,8 @@
  *   Both DMA start and SetState calls check for dead-time.
  *
  * SDK 版：原工程 Hardware/hbridge，TIM 寄存器与 DMA 操作已 funnel 到
- * chip/oop_tim 与 chip/oop_dma（HAL 唯一入口），本模块不再直戳 TIMx->*
- * 或调用 HAL_TIM_*/HAL_DMA_*。HBRIDGE_* 名称保持，工程调用点零改动。
+ * chip/oop_tim 与 chip/oop_dma（HAL 唯一入口），本模块不再直戳 TIMx 寄存器
+ * 或调用 HAL_TIMxx / HAL_DMAxx。HBRIDGE_ 前缀名称保持，工程调用点零改动。
  * ============================================================ */
 
 #ifndef __HBRIDGE_H__

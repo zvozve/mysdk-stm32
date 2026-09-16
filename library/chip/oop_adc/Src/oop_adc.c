@@ -3,8 +3,8 @@
  * @brief   OOP 通用 ADC+DMA 采样与滤波实现
  * @see     oop_adc.h
  *
- * SDK 版：由工程 BSP/bsp_adc 迁入 chip 层并重命名（BSP_ADC_/bsp_adc_* →
- * OOP_ADC_/oop_adc_*）。chip 层直调 HAL_ADC_*/HAL_DMA_* 合法。
+ * SDK 版：由工程 BSP/bsp_adc 迁入 chip 层并重命名（BSP_ADC / bsp_adc_ →
+ * OOP_ADC / oop_adc_）。chip 层直调 HAL_ADCxx / HAL_DMAxx 合法。
  */
 #include "oop_adc.h"
 

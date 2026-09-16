@@ -43,9 +43,20 @@
 #define IDX_LO1  2   /* CCR3 */
 #define IDX_LO2  3   /* CCR4 */
 
-/* ========== 主从同步（TIM1 master -> TIM8 slave, ITR0） ========== */
+/* ========== 主从同步拓扑（板无关） ==========
+ *
+ * 同步时不引用任何具体 TIMx 外设名，只用"注册槽位"表达：
+ *   后注册槽位(ch1) = master，输出 TRGO（TIM_CR2_MMS_1 = Update）
+ *   先注册槽位(ch0) = slave，由 master 的 TRGO 启动（ITR0 / 外部时钟模式1）
+ *
+ * ⚠ 工程侧约定：EMHelpers 注册顺序为 ch0=从、ch1=主（当前板 ch0=TIM8、ch1=TIM1，
+ *   见 User/board_cfg.h 的 BOARD_EM_CHx_*）。换板只要保持"主在后注册"即可，
+ *   不需改动本驱动。ITR 触发线到外设的映射由芯片参考手册决定（此处固定 ITR0）。
+ */
 #define HB_SYNC_TS  (0x04U << TIM_SMCR_TS_Pos)   /* ITR0 */
 #define HB_SYNC_SMS (0x06U << TIM_SMCR_SMS_Pos)  /* External Clock Mode 1 */
+#define HB_SYNC_MASTER_SLOT  1
+#define HB_SYNC_SLAVE_SLOT   0
 
 /* ========== Per-channel current state tracking ========== */
 static hbridge_state_t g_ch_state[2] = {HBRIDGE_IDLE, HBRIDGE_IDLE};
@@ -309,12 +320,18 @@ bool HBRIDGE_EnableSync(hbridge_t *hb, bool enable) {
 
     hb->sync_enabled = enable;
 
+    /* ★ 同步拓扑：后注册槽位作 master（发 TRGO），先注册槽位作 slave（触发启动）。
+     * 具体是哪个 TIM 由工程注册时注入，本模块不引用任何 TIMx 外设名。
+     * 注：TS/SMS 取值按 ST 参考手册的 ITR 触发映射（见 HB_SYNC_TS 定义处注释）。 */
+    TIM_HandleTypeDef *hm = hb->ch[HB_SYNC_MASTER_SLOT].htim;
+    TIM_HandleTypeDef *hs = hb->ch[HB_SYNC_SLAVE_SLOT].htim;
+
     if (enable) {
-        oop_tim_master_mode_set(TIM1, TIM_CR2_MMS_1);
-        oop_tim_slave_mode_set(TIM8, HB_SYNC_TS, HB_SYNC_SMS);
-        DBG_LOG("HB: sync ON (TIM1 -> TIM8)");
+        oop_tim_master_mode_set(hm, TIM_CR2_MMS_1);
+        oop_tim_slave_mode_set(hs, HB_SYNC_TS, HB_SYNC_SMS);
+        DBG_LOG("HB: sync ON (ch%d -> ch%d)", HB_SYNC_MASTER_SLOT, HB_SYNC_SLAVE_SLOT);
     } else {
-        oop_tim_slave_mode_set(TIM8, 0, 0);
+        oop_tim_slave_mode_set(hs, 0, 0);
         DBG_LOG("HB: sync OFF");
     }
 
@@ -325,12 +342,12 @@ void HBRIDGE_Start(hbridge_t *hb, uint8_t ch_id) {
     if (ch_id >= 2 || !hb->ch[ch_id].registered) return;
 
     hbridge_channel_t *ch = &hb->ch[ch_id];
-    TIM_TypeDef *TIMx = ch->htim->Instance;
 
     oop_tim_outputs_enable(ch->htim);
 
-    if (TIMx == TIM8) {
-        oop_tim_slave_mode_set(TIM8, 0, 0);
+    /* 单独启动时若该槽位是同步拓扑的 slave，先解除从模式，否则等不到 TRGO */
+    if (ch_id == HB_SYNC_SLAVE_SLOT) {
+        oop_tim_slave_mode_set(ch->htim, 0, 0);
     }
 
     oop_tim_counter_enable(ch->htim);
@@ -368,16 +385,22 @@ void HBRIDGE_StartAll(hbridge_t *hb) {
             oop_tim_outputs_enable(hb->ch[i].htim);
         }
 
-        oop_tim_master_mode_set(TIM1, TIM_CR2_MMS_1);
-        oop_tim_slave_mode_set(TIM8, HB_SYNC_TS, HB_SYNC_SMS);
+        TIM_HandleTypeDef *hm = hb->ch[HB_SYNC_MASTER_SLOT].htim;
+        TIM_HandleTypeDef *hs = hb->ch[HB_SYNC_SLAVE_SLOT].htim;
 
-        oop_tim_counter_enable(TIM8);
-        oop_tim_counter_enable(TIM1);
+        oop_tim_master_mode_set(hm, TIM_CR2_MMS_1);
+        oop_tim_slave_mode_set(hs, HB_SYNC_TS, HB_SYNC_SMS);
 
-        oop_tim_counter_reset(TIM1);
-        oop_tim_counter_reset(TIM8);
+        /* 先 slave 后 master：slave 已在等 TRGO，master 使能后立即同步起跑 */
+        oop_tim_counter_enable(hs);
+        oop_tim_counter_enable(hm);
 
-        DBG_LOG("HB: sync start (TIM1 + TIM8)");
+        /* 复位 CNT 保证同相位（master 最后一次复位重发 TRGO） */
+        oop_tim_counter_reset(hs);
+        oop_tim_counter_reset(hm);
+
+        DBG_LOG("HB: sync start (master=ch%d, slave=ch%d)",
+                HB_SYNC_MASTER_SLOT, HB_SYNC_SLAVE_SLOT);
     } else {
         for (uint8_t i = 0; i < 2; i++) {
             if (hb->ch[i].registered) {
