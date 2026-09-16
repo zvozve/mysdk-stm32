@@ -2,6 +2,7 @@
 #include "oop_i2c_drv.h"
 #include "oop_dwt.h"
 #include <string.h>
+#include <stdio.h>          /* snprintf：落盘监控 hex */
 #include "SEGGER_RTT_Log.h"
 #include "SEGGER_RTT.h"
 
@@ -310,6 +311,81 @@ void at24cxx_write_u32(uint16_t addr, uint32_t *pbuf, uint16_t datalen) {
         buf[i*4+3] = (pbuf[i] >> 24) & 0xFF;  // 字节3 (MSB)
     }
     at24cxx_write_page(addr * 4, buf, datalen * 4);
+}
+
+/* ============================================================
+ * 注册管理实现（原工程依赖，SDK 迁入时被裁。此处按需补齐：
+ * 只保留工程实际使用的 register / read_by_ptr / write_by_ptr。）
+ * ============================================================ */
+
+typedef struct {
+    void    *data_ptr;
+    uint16_t eeprom_addr;
+    uint16_t size;
+} eeprom_reg_item_t;
+
+static eeprom_reg_item_t g_reg_table[EEPROM_REG_MAX_ITEMS];
+static uint16_t          g_reg_count     = 0;
+static uint16_t          g_reg_next_addr = 0;   /* 下一可用地址（从 0 开始分配） */
+
+bool eeprom_reg_register(void *ptr, uint16_t size) {
+    if (ptr == NULL || size == 0) return false;
+    if (g_reg_count >= EEPROM_REG_MAX_ITEMS) return false;
+    if ((uint32_t)g_reg_next_addr + size > (uint32_t)EE_TYPE) return false;
+
+    g_reg_table[g_reg_count].data_ptr    = ptr;
+    g_reg_table[g_reg_count].eeprom_addr = g_reg_next_addr;
+    g_reg_table[g_reg_count].size        = size;
+
+    g_reg_next_addr += size;
+    g_reg_count++;
+    return true;
+}
+
+static eeprom_reg_item_t *eeprom_reg_find(void *ptr) {
+    for (uint16_t i = 0; i < g_reg_count; i++) {
+        if (g_reg_table[i].data_ptr == ptr) return &g_reg_table[i];
+    }
+    return NULL;
+}
+
+void eeprom_reg_read_by_ptr(void *ptr) {
+    eeprom_reg_item_t *item = eeprom_reg_find(ptr);
+    if (item == NULL) {
+        SYS_LOG("[EEP] RD skip: ptr %p not registered", ptr);
+        return;
+    }
+    uint8_t *dst = (uint8_t *)item->data_ptr;
+    for (uint16_t i = 0; i < item->size; i++) {
+        dst[i] = at24cxx_read_one_byte((uint16_t)(item->eeprom_addr + i));
+    }
+}
+
+void eeprom_reg_write_by_ptr(void *ptr) {
+    eeprom_reg_item_t *item = eeprom_reg_find(ptr);
+    if (item == NULL) {
+        SYS_LOG("[EEP] WR skip: ptr %p not registered", ptr);
+        return;
+    }
+    uint8_t  *src    = (uint8_t *)item->data_ptr;
+    uint16_t remain  = item->size;
+    uint16_t off     = 0;
+
+    /* write_page 的 len 形参是 uint8_t 且内部已处理跨页，这里按块切分即可 */
+    while (remain > 0) {
+        uint8_t chunk = (remain > 128u) ? 128u : (uint8_t)remain;
+        at24cxx_write_page((uint16_t)(item->eeprom_addr + off), src + off, chunk);
+        off    += chunk;
+        remain -= chunk;
+    }
+
+    /* 落盘监控：确认真的写进 eeprom（排查"读完仍是默认值"） */
+    char hex[128];
+    int  hp = 0;
+    for (uint16_t i = 0; i < item->size && hp < (int)sizeof(hex) - 4; i++) {
+        hp += snprintf(hex + hp, (size_t)(sizeof(hex) - hp), " %02X", src[i]);
+    }
+    SYS_LOG("[EEP] WR @0x%04X len=%u :%s", item->eeprom_addr, item->size, hex);
 }
 
 /**
