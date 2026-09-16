@@ -13,13 +13,16 @@
  * 6. Automatic dead-time insertion on state change (FORWARD <-> REVERSE)
  * 7. Each channel maintains its own current state for dead-time checking
  *
- * SDK 版：由工程 Hardware/hbridge 迁入，chip 层直调 HAL_TIM_*/HAL_DMA_*
- * 合法；hbridge.h 原先包含 CubeMX 定时器头，已改为 hal_platform.h。
+ * SDK 版（重构）：TIM 寄存器与 DMA 操作全部 funnel 到 chip/oop_tim 与
+ * chip/oop_dma，本文件不再直戳 TIMx->* 或调用 HAL_DMA_* / HAL_TIM_*，
+ * 满足 "oop_tim 是 HAL 唯一入口" 的设计铁律。公共 API 保持不变。
  * ============================================================ */
 
 #include "hbridge.h"
 #include <string.h>
 #include "SEGGER_RTT_Log.h"
+#include "oop_tim_drv.h"    /* TIM 寄存器封装（HAL 唯一入口） */
+#include "oop_dma_drv.h"    /* DMA 封装（HAL_DMA_* 唯一入口） */
 
 /* ========== CCR index mapping (internal) ==========
  *
@@ -39,6 +42,10 @@
 #define IDX_HI2  1   /* CCR2 */
 #define IDX_LO1  2   /* CCR3 */
 #define IDX_LO2  3   /* CCR4 */
+
+/* ========== 主从同步（TIM1 master -> TIM8 slave, ITR0） ========== */
+#define HB_SYNC_TS  (0x04U << TIM_SMCR_TS_Pos)   /* ITR0 */
+#define HB_SYNC_SMS (0x06U << TIM_SMCR_SMS_Pos)  /* External Clock Mode 1 */
 
 /* ========== Per-channel current state tracking ========== */
 static hbridge_state_t g_ch_state[2] = {HBRIDGE_IDLE, HBRIDGE_IDLE};
@@ -177,16 +184,15 @@ static uint16_t hbridge_convert_points(hbridge_channel_t *ch,
 }
 
 /* ========== DMA completion callback (internal) ========== */
-static void hbridge_dma_callback(DMA_HandleTypeDef *hdma) {
-    hbridge_channel_t *ch = (hbridge_channel_t *)hdma->Parent;
-    if (!ch) return;
+static void hbridge_dma_callback(void *user) {
+    hbridge_channel_t *ch = (hbridge_channel_t *)user;
+    if (ch == NULL) return;
 
     if (ch->wave_loop && ch->wave_frame_count > 0) {
         /* Loop mode: restart DMA on internal buffer immediately */
-        HAL_DMA_Start_IT(ch->hdma,
-                         (uint32_t)ch->dma_buffer,
-                         (uint32_t)&ch->htim->Instance->DMAR,
-                         (uint32_t)ch->wave_frame_count * 4);
+        oop_tim_dmar_burst_start(ch->htim, ch->hdma,
+                                 (uint32_t)ch->dma_buffer,
+                                 (uint32_t)ch->wave_frame_count * 4);
         return;
     }
 
@@ -199,12 +205,11 @@ static void hbridge_dma_callback(DMA_HandleTypeDef *hdma) {
     }
 }
 
-/* ========== Write CCR registers directly ========== */
+/* ========== Write CCR registers directly (via oop_tim) ========== */
 static void hbridge_write_ccr(hbridge_channel_t *ch, const uint32_t frame[4]) {
-    ch->htim->Instance->CCR1 = frame[IDX_HI1];
-    ch->htim->Instance->CCR2 = frame[IDX_HI2];
-    ch->htim->Instance->CCR3 = frame[IDX_LO1];
-    ch->htim->Instance->CCR4 = frame[IDX_LO2];
+    oop_tim_ccr_write_all(ch->htim,
+                          frame[IDX_HI1], frame[IDX_HI2],
+                          frame[IDX_LO1], frame[IDX_LO2]);
 }
 
 /* ========== Channel init ========== */
@@ -223,30 +228,20 @@ static void hbridge_ch_init(hbridge_channel_t *ch, uint8_t id,
     ch->callback = NULL;
     ch->callback_user = NULL;
 
-    TIM_TypeDef *TIMx = htim->Instance;
+    /* --- Configure DCR for burst DMA (via oop_tim) --- */
+    oop_tim_dmar_config(htim, TIM_DMABASE_CCR1, TIM_DMABURSTLENGTH_4TRANSFERS);
 
-    /* --- Configure DCR for burst DMA --- */
-    TIMx->DCR = TIM_DMABASE_CCR1 | TIM_DMABURSTLENGTH_4TRANSFERS;
+    /* --- Enable CCR preload (via oop_tim) --- */
+    oop_tim_oc_preload_enable(htim);
 
-    /* --- Enable CCR preload --- */
-    TIMx->CCMR1 |= TIM_CCMR1_OC1PE | TIM_CCMR1_OC2PE;
-    TIMx->CCMR2 |= TIM_CCMR2_OC3PE | TIM_CCMR2_OC4PE;
+    /* --- DMA request setup: only CC1DE for burst DMA (via oop_tim) --- */
+    oop_tim_dma_burst_req_enable(htim);
 
-    /* --- DMA request setup: only CC1DE for burst DMA --- */
-    TIMx->DIER &= ~(TIM_DIER_CC1DE | TIM_DIER_CC2DE
-                    | TIM_DIER_CC3DE | TIM_DIER_CC4DE);
-    TIMx->DIER |= TIM_DIER_CC1DE;
+    /* --- Register DMA callback (user = channel, via oop_dma) --- */
+    oop_dma_register_callback(hdma_ch1, hbridge_dma_callback, ch);
 
-    /* --- Register DMA callback --- */
-    hdma_ch1->Parent = ch;
-    HAL_DMA_RegisterCallback(hdma_ch1, HAL_DMA_XFER_CPLT_CB_ID,
-                             hbridge_dma_callback);
-
-    /* --- Safe initial state: all CCR = 0 --- */
-    TIMx->CCR1 = 0;
-    TIMx->CCR2 = 0;
-    TIMx->CCR3 = 0;
-    TIMx->CCR4 = 0;
+    /* --- Safe initial state: all CCR = 0 (via oop_tim) --- */
+    oop_tim_ccr_write_all(htim, 0, 0, 0, 0);
 
     /* ★ 初始化状态记录 */
     g_ch_state[id] = HBRIDGE_IDLE;
@@ -315,11 +310,11 @@ bool HBRIDGE_EnableSync(hbridge_t *hb, bool enable) {
     hb->sync_enabled = enable;
 
     if (enable) {
-        TIM1->CR2 |= TIM_CR2_MMS_1;
-        TIM8->SMCR = (0x04U << TIM_SMCR_TS_Pos) | (0x06U << TIM_SMCR_SMS_Pos);
+        oop_tim_master_mode_set(TIM1, TIM_CR2_MMS_1);
+        oop_tim_slave_mode_set(TIM8, HB_SYNC_TS, HB_SYNC_SMS);
         DBG_LOG("HB: sync ON (TIM1 -> TIM8)");
     } else {
-        TIM8->SMCR = 0;
+        oop_tim_slave_mode_set(TIM8, 0, 0);
         DBG_LOG("HB: sync OFF");
     }
 
@@ -332,15 +327,13 @@ void HBRIDGE_Start(hbridge_t *hb, uint8_t ch_id) {
     hbridge_channel_t *ch = &hb->ch[ch_id];
     TIM_TypeDef *TIMx = ch->htim->Instance;
 
-    TIMx->CCER |= TIM_CCER_CC1E | TIM_CCER_CC2E
-                | TIM_CCER_CC3E | TIM_CCER_CC4E;
-    TIMx->BDTR |= TIM_BDTR_MOE;
+    oop_tim_outputs_enable(ch->htim);
 
     if (TIMx == TIM8) {
-        TIMx->SMCR = 0;
+        oop_tim_slave_mode_set(TIM8, 0, 0);
     }
 
-    TIMx->CR1 |= TIM_CR1_CEN;
+    oop_tim_counter_enable(ch->htim);
 
     DBG_LOG("HB CH%d: started", ch_id);
 }
@@ -349,20 +342,16 @@ void HBRIDGE_Stop(hbridge_t *hb, uint8_t ch_id) {
     if (ch_id >= 2 || !hb->ch[ch_id].registered) return;
 
     hbridge_channel_t *ch = &hb->ch[ch_id];
-    TIM_TypeDef *TIMx = ch->htim->Instance;
 
     if (ch->is_streaming && ch->hdma) {
-        HAL_DMA_Abort(ch->hdma);
+        oop_dma_abort(ch->hdma);
     }
     ch->is_streaming = false;
     ch->wave_frame_count = 0;
     ch->wave_loop = false;
 
-    TIMx->CCR1 = 0;
-    TIMx->CCR2 = 0;
-    TIMx->CCR3 = 0;
-    TIMx->CCR4 = 0;
-    TIMx->CR1 &= ~TIM_CR1_CEN;
+    oop_tim_counter_disable(ch->htim);
+    oop_tim_ccr_write_all(ch->htim, 0, 0, 0, 0);
 
     /* ★ 停止时状态变为 IDLE */
     g_ch_state[ch_id] = HBRIDGE_IDLE;
@@ -376,20 +365,17 @@ void HBRIDGE_StartAll(hbridge_t *hb) {
 
     if (hb->sync_enabled && hb->registered_count == 2) {
         for (uint8_t i = 0; i < 2; i++) {
-            TIM_TypeDef *TIMx = hb->ch[i].htim->Instance;
-            TIMx->CCER |= TIM_CCER_CC1E | TIM_CCER_CC2E
-                        | TIM_CCER_CC3E | TIM_CCER_CC4E;
-            TIMx->BDTR |= TIM_BDTR_MOE;
+            oop_tim_outputs_enable(hb->ch[i].htim);
         }
 
-        TIM1->CR2 |= TIM_CR2_MMS_1;
-        TIM8->SMCR = (0x04U << TIM_SMCR_TS_Pos) | (0x06U << TIM_SMCR_SMS_Pos);
+        oop_tim_master_mode_set(TIM1, TIM_CR2_MMS_1);
+        oop_tim_slave_mode_set(TIM8, HB_SYNC_TS, HB_SYNC_SMS);
 
-        TIM8->CR1 |= TIM_CR1_CEN;
-        TIM1->CR1 |= TIM_CR1_CEN;
+        oop_tim_counter_enable(TIM8);
+        oop_tim_counter_enable(TIM1);
 
-        TIM1->CNT = 0;
-        TIM8->CNT = 0;
+        oop_tim_counter_reset(TIM1);
+        oop_tim_counter_reset(TIM8);
 
         DBG_LOG("HB: sync start (TIM1 + TIM8)");
     } else {
@@ -418,7 +404,7 @@ void HBRIDGE_SetState(hbridge_t *hb, uint8_t ch_id,
     hbridge_channel_t *ch = &hb->ch[ch_id];
 
     if (ch->is_streaming && ch->hdma) {
-        HAL_DMA_Abort(ch->hdma);
+        oop_dma_abort(ch->hdma);
     }
     ch->is_streaming = false;
     ch->wave_frame_count = 0;
@@ -460,11 +446,11 @@ void HBRIDGE_SetStateDualSync(hbridge_t *hb,
     if (!ch0->registered || !ch1->registered) return;
 
     if (ch0->is_streaming && ch0->hdma) {
-        HAL_DMA_Abort(ch0->hdma);
+        oop_dma_abort(ch0->hdma);
         ch0->is_streaming = false;
     }
     if (ch1->is_streaming && ch1->hdma) {
-        HAL_DMA_Abort(ch1->hdma);
+        oop_dma_abort(ch1->hdma);
         ch1->is_streaming = false;
     }
 
@@ -498,18 +484,8 @@ void HBRIDGE_SetStateDualSync(hbridge_t *hb,
         hbridge_fill_transition_frame(frame1);
     }
 
-    TIM_TypeDef *tim0 = ch0->htim->Instance;
-    TIM_TypeDef *tim1 = ch1->htim->Instance;
-
-    tim0->CCR1 = frame0[IDX_HI1];
-    tim0->CCR2 = frame0[IDX_HI2];
-    tim0->CCR3 = frame0[IDX_LO1];
-    tim0->CCR4 = frame0[IDX_LO2];
-
-    tim1->CCR1 = frame1[IDX_HI1];
-    tim1->CCR2 = frame1[IDX_HI2];
-    tim1->CCR3 = frame1[IDX_LO1];
-    tim1->CCR4 = frame1[IDX_LO2];
+    hbridge_write_ccr(ch0, frame0);
+    hbridge_write_ccr(ch1, frame1);
 
     ch0->wave_frame_count = 0;
     ch0->wave_loop = false;
@@ -547,7 +523,7 @@ static void hbridge_start_wave_internal(hbridge_t *hb, uint8_t ch_id,
     }
 
     if (ch->is_streaming && ch->hdma) {
-        HAL_DMA_Abort(ch->hdma);
+        oop_dma_abort(ch->hdma);
     }
 
     /* ★ hbridge_convert_points 内部会处理死区并更新 g_ch_state */
@@ -561,10 +537,9 @@ static void hbridge_start_wave_internal(hbridge_t *hb, uint8_t ch_id,
     ch->wave_loop = loop;
     ch->is_streaming = true;
 
-    HAL_DMA_Start_IT(ch->hdma,
-                     (uint32_t)ch->dma_buffer,
-                     (uint32_t)&ch->htim->Instance->DMAR,
-                     (uint32_t)n * 4);
+    oop_tim_dmar_burst_start(ch->htim, ch->hdma,
+                             (uint32_t)ch->dma_buffer,
+                             (uint32_t)n * 4);
 
     DBG_LOG("HB CH%d: wave %s, %d frames",
             ch_id, loop ? "LOOP" : "SINGLE", n);
@@ -594,35 +569,16 @@ bool HBRIDGE_StartWaveDualSync(hbridge_t *hb,
     uint16_t n1 = hbridge_convert_points(ch1, pts1, count1);
     if (n0 == 0 || n1 == 0) return false;
 
-    DMA_HandleTypeDef *dma0 = ch0->hdma;
-    HAL_DMA_Abort(dma0);
+    /* 统一走 oop_tim_dmar_burst_start（HAL_DMA_Start_IT + DMAR 目标），不再裸写 DMA_Channel */
+    oop_dma_abort(ch0->hdma);
+    oop_tim_dmar_burst_start(ch0->htim, ch0->hdma,
+                             (uint32_t)ch0->dma_buffer,
+                             (uint32_t)n0 * 4);
 
-    dma0->Instance->CCR &= ~DMA_CCR_EN;
-    dma0->Instance->CPAR = (uint32_t)&ch0->htim->Instance->DMAR;
-    dma0->Instance->CMAR = (uint32_t)ch0->dma_buffer;
-    dma0->Instance->CNDTR = n0 * 4;
-
-    dma0->Instance->CCR |= DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_TCIE;
-    dma0->Instance->CCR &= ~(DMA_CCR_PINC | DMA_CCR_CIRC);
-    dma0->Instance->CCR |= DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0;
-
-    DMA_HandleTypeDef *dma1 = ch1->hdma;
-    HAL_DMA_Abort(dma1);
-
-    dma1->Instance->CCR &= ~DMA_CCR_EN;
-    dma1->Instance->CPAR = (uint32_t)&ch1->htim->Instance->DMAR;
-    dma1->Instance->CMAR = (uint32_t)ch1->dma_buffer;
-    dma1->Instance->CNDTR = n1 * 4;
-
-    dma1->Instance->CCR |= DMA_CCR_DIR | DMA_CCR_MINC | DMA_CCR_TCIE;
-    dma1->Instance->CCR &= ~(DMA_CCR_PINC | DMA_CCR_CIRC);
-    dma1->Instance->CCR |= DMA_CCR_MSIZE_0 | DMA_CCR_PSIZE_0;
-
-    __DMB();
-
-    /* ★ 同时使能两个DMA */
-    dma0->Instance->CCR |= DMA_CCR_EN;
-    dma1->Instance->CCR |= DMA_CCR_EN;
+    oop_dma_abort(ch1->hdma);
+    oop_tim_dmar_burst_start(ch1->htim, ch1->hdma,
+                             (uint32_t)ch1->dma_buffer,
+                             (uint32_t)n1 * 4);
 
     ch0->wave_frame_count = n0;
     ch0->wave_loop = false;
@@ -647,7 +603,7 @@ void HBRIDGE_StopWave(hbridge_t *hb, uint8_t ch_id) {
     hbridge_channel_t *ch = &hb->ch[ch_id];
 
     if (ch->is_streaming && ch->hdma) {
-        HAL_DMA_Abort(ch->hdma);
+        oop_dma_abort(ch->hdma);
     }
     ch->is_streaming = false;
     ch->wave_frame_count = 0;

@@ -24,9 +24,9 @@
  *   Dead-time is automatically inserted on FORWARD <-> REVERSE transitions.
  *   Both DMA start and SetState calls check for dead-time.
  *
- * SDK 版：原工程 Hardware/hbridge，仅把 CubeMX 定时器头改为
- * hal_platform.h（HAL 类型统一入口），本模块属 chip 层、直调
- * HAL_TIM_*/HAL_DMA_* 合法。HBRIDGE_* 名称保持，工程调用点零改动。
+ * SDK 版：原工程 Hardware/hbridge，TIM 寄存器与 DMA 操作已 funnel 到
+ * chip/oop_tim 与 chip/oop_dma（HAL 唯一入口），本模块不再直戳 TIMx->*
+ * 或调用 HAL_TIM_*/HAL_DMA_*。HBRIDGE_* 名称保持，工程调用点零改动。
  * ============================================================ */
 
 #ifndef __HBRIDGE_H__
