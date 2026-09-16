@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.3.0",
+    "version": "0.3.1",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -154,6 +154,54 @@
       "files": [
         "chip/oop_i2s/Inc/oop_i2s_drv.h",
         "chip/oop_i2s/Src/oop_i2s_drv_hal.c"
+      ]
+    },
+    {
+      "id": "chip.oop_adc",
+      "name": "oop_adc",
+      "layer": "chip",
+      "category": "adc",
+      "version": "V2.0",
+      "updated": "2026-09-16",
+      "path": "chip/oop_adc",
+      "description": "通用 ADC+DMA 采样与滤波抽象层（去极值平均 + 快照），坐 HAL_ADC_*/HAL_DMA_* 之上；注册 HAL_ADC_ConvCpltCallback 作为 ADC 唯一所有者。由工程 BSP/bsp_adc 迁入。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_adc/Inc/oop_adc.h",
+        "chip/oop_adc/Src/oop_adc.c"
+      ]
+    },
+    {
+      "id": "chip.hbridge",
+      "name": "hbridge",
+      "layer": "chip",
+      "category": "pwm",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "chip/hbridge",
+      "description": "H 桥驱动（TIM1/TIM8 突发 DMA 波形 + 死区 + 同步），坐 HAL_TIM_*/HAL_DMA_* 之上；应用只给 {state,duty} 帧，内部转 4-CH CCR，构造上杜绝直通。由工程 Hardware/hbridge 迁入。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/hbridge/Inc/hbridge.h",
+        "chip/hbridge/Src/hbridge.c"
+      ]
+    },
+    {
+      "id": "chip.mcp42010",
+      "name": "mcp42010",
+      "layer": "chip",
+      "category": "spi",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "chip/mcp42010",
+      "description": "MCP42010 数字电位器（SPI），坐 HAL_SPI_*/HAL_GPIO_* 之上；SPI 句柄与 CS 引脚由 MCP42010_Init 注入。由工程 Hardware/mcp42010 迁入。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/mcp42010/Inc/mcp42010.h",
+        "chip/mcp42010/Src/mcp42010.c"
       ]
     },
     {
@@ -315,6 +363,54 @@
       ]
     },
     {
+      "id": "devices.gh2se",
+      "name": "gh2se",
+      "layer": "devices",
+      "category": "sensor",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "devices/gh2se",
+      "description": "GH-2SE 接近传感器阈值/到位/反弹判定状态机（纯逻辑，不碰寄存器），计时走 oop_dwt。由工程 Hardware/gh2se 迁入。",
+      "depends": ["chip.oop_dwt"],
+      "backends": ["chip.oop_dwt"],
+      "files": [
+        "devices/gh2se/Inc/gh2se.h",
+        "devices/gh2se/Src/gh2se.c"
+      ]
+    },
+    {
+      "id": "devices.dip_switch",
+      "name": "dip_switch",
+      "layer": "devices",
+      "category": "input",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "devices/dip_switch",
+      "description": "8 位拨码开关抽象，引脚映射由 DIP_Init(map) 注入，GPIO 走 oop_gpio；RCC 由板级负责。由工程 Hardware/dip_switch 迁入。",
+      "depends": ["chip.oop_gpio"],
+      "backends": ["chip.oop_gpio"],
+      "files": [
+        "devices/dip_switch/Inc/dip_switch.h",
+        "devices/dip_switch/Src/dip_switch.c"
+      ]
+    },
+    {
+      "id": "devices.sigout",
+      "name": "sigout",
+      "layer": "devices",
+      "category": "output",
+      "version": "V1.0",
+      "updated": "2026-09-16",
+      "path": "devices/sigout",
+      "description": "外部状态输出（SEL1/2 电平 + OUT1..4 到位/反弹脉冲），引脚映射由 SIGOUT_Init(map) 注入，GPIO 走 oop_gpio、计时走 oop_dwt。由工程 Hardware/sigout 迁入。",
+      "depends": ["chip.oop_gpio", "chip.oop_dwt"],
+      "backends": ["chip.oop_gpio"],
+      "files": [
+        "devices/sigout/Inc/sigout.h",
+        "devices/sigout/Src/sigout.c"
+      ]
+    },
+    {
       "id": "middleware.SEGGER_RTT",
       "name": "SEGGER_RTT",
       "layer": "middleware",
@@ -434,6 +530,7 @@
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
     "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。",
     "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_1838b/ir_tx/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
-    "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。"
+    "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
+    "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。"
   ]
 }
