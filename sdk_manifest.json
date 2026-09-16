@@ -431,6 +431,22 @@
       ]
     },
     {
+      "id": "devices.delta_dop_107",
+      "name": "delta_dop_107",
+      "layer": "devices",
+      "category": "hmi",
+      "version": "V1.0",
+      "updated": "2026-09-17",
+      "path": "devices/delta_dop_107",
+      "description": "Delta DOP-107 HMI 屏波形显示驱动（功能封装层，不做点位认领）：双通道同刻快照 + 100reg/帧分帧排队写出（DOP107_WaveFlush）、4 条水平参考线（每条 2 寄存器 {mv,mv}）、屏控制刷新/清除、反弹错误标记线圈。所有写出经 protocols.Modbus 的 modbus_master_*_async 入队由总线仲裁器调度。⚠ 用户配置头：HMI 寄存器地址来自工程提供的 hmi_modbus_addr.h（MB_REG_WAVE_A/B、MB_REG_LINE_*、MB_REG_HMI_CTRL、MB_COIL_ERR_MARK），与 board_cfg.h 同理由工程注入 include path；日志标签 HMI_LOG 可选由工程提供，缺省 #ifndef 退化到 DBG_LOG。由工程 Hardware/delta_dop_107 迁入。",
+      "depends": ["protocols.Modbus", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "backends": ["protocols.Modbus"],
+      "files": [
+        "devices/delta_dop_107/Inc/delta_dop_107.h",
+        "devices/delta_dop_107/Src/delta_dop_107.c"
+      ]
+    },
+    {
       "id": "devices.sigout",
       "name": "sigout",
       "layer": "devices",
