@@ -12,6 +12,7 @@
 #define __MCP42010_H__
 
 #include "hal_platform.h"   /* STM32 系列 HAL 统一入口（SPI/GPIO 句柄类型） */
+#include "oop_spi.h"        /* SPI 传输（device 层经 oop_spi 管理，不碰 HAL） */
 #include "oop_gpio_drv.h"   /* CS 片选（device 层经 oop_gpio 管理，不碰 HAL） */
 
 #define MCP42010_CMD_WR 0x10    /* 写命令 (高4位固定为0) */
@@ -22,7 +23,8 @@
 #define MCP42010_WIPER_MAX  255
 
 typedef struct {
-    gpio_dev_t  cs;          /* CS 片选（oop_gpio 管理，低有效） */
+    oop_spi_dev_t spi;       /* SPI 实例（oop_spi 管理，多 SPI 从设备可并存） */
+    gpio_dev_t    cs;        /* CS 片选（oop_gpio 管理，低有效） */
 } mcp42010_spi_t;
 
 /**

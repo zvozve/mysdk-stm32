@@ -16,7 +16,7 @@
 static mcp42010_spi_t g_mcp = {0};
 
 void MCP42010_Init(SPI_HandleTypeDef *hspi, GPIO_TypeDef *cs_port, uint16_t cs_pin) {
-    oop_spi_init(hspi);
+    oop_spi_dev_init(&g_mcp.spi, hspi);
     oop_gpio_init_output(&g_mcp.cs, cs_port, cs_pin, true);
 }
 
@@ -25,7 +25,7 @@ void MCP42010_Write(uint8_t chn, uint8_t value) {
     data[0] = MCP42010_CMD_WR | (chn + 1);
     data[1] = value;
     oop_gpio_set_low(&g_mcp.cs);
-    oop_spi_transmit(data, 2);
+    oop_spi_transmit(&g_mcp.spi, data, 2);
     oop_gpio_set_high(&g_mcp.cs);
 }
 
@@ -34,8 +34,8 @@ uint8_t MCP42010_Read(uint8_t chn) {
     uint8_t data = 0xFF; /* 存储读取值 */
 
     oop_gpio_set_low(&g_mcp.cs);
-    oop_spi_transmit(&cmd, 1);
-    oop_spi_receive(&data, 1);
+    oop_spi_transmit(&g_mcp.spi, &cmd, 1);
+    oop_spi_receive(&g_mcp.spi, &data, 1);
     oop_gpio_set_high(&g_mcp.cs);
 
     return data;
