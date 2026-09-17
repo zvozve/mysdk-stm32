@@ -60,6 +60,8 @@ typedef struct {
     uint8_t  word_length;
     uint8_t  stop_bits;
     uint8_t  parity;
+    uint8_t  emulate_7bit;        // 7 位数据软件模拟开关（F4 硬件无 7 位字长，用 8N1 + 软件校验实现 7E1/7O1）
+    uint8_t  emulate_7bit_parity; // 0=偶校验(7E1), 1=奇校验(7O1)
 } uart_drv_cfg_t;
 
 // ===========================
@@ -90,7 +92,11 @@ typedef struct uart_drv_instance {
     
     // 配置
     uart_drv_cfg_t cfg;
-    
+
+    // 7 位数据软件模拟状态（仅当 cfg.emulate_7bit 时生效，详见 uart_drv_reconfig/send/on_idle）
+    uint8_t emulate_7bit;
+    uint8_t emulate_7bit_parity;
+
     // 回调
     void (*on_recv)(struct uart_drv_instance *pInst, uint8_t *data, uint16_t len);
     void (*on_sent)(struct uart_drv_instance *pInst);
