@@ -6,8 +6,13 @@
 
 | 文件 | 层 | 职责 |
 | :--- | :--- | :--- |
-| `library/middleware/usbh/` | middleware | ST USB Host Library（厂商库，随 SDK 提供，不归本项目维护） |
+| `Middlewares/ST/STM32_USB_Host_Library/` | CubeMX Middlewares（**工程侧，不进 SDK**） | ST USB Host Library 厂商库（Core + Class/HID） |
 | `library/devices/usb_host/` | devices | 应用适配层：HID 设备识别、按键环形缓冲、鼠标原始报文解析、枚举卡死看门狗 |
+
+> **为什么厂商库不进 SDK：** SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不复制
+> CubeMX 的 Middlewares 组件。若 SDK 再带一份 usbh，会与工程侧 CubeMX 生成的
+> `USB_Host_Library` 同时链入，产生重复符号。故本模块依赖声明为 `external:usbh`
+> （由宿主工程提供），与 `protocols.wol` 的 `external:lwip` 同构，只保留应用适配层。
 
 板级绑定与事件上报（工程侧，驱动不再直接引用 CubeMX 全局）：
 
@@ -18,7 +23,7 @@ usb_host_port_event(USB_HOST_EVT_READY);  /* 在 USBH_UserProcess 内翻译 Cube
 
 > **为什么不再直接读 `Appli_state`：** SDK devices 层禁止 include CubeMX 生成的工程头
 > （`main.h` / `usb_host.h`）。因此把「CubeMX 应用状态 → SDK 事件」的翻译放回工程侧
-> 的 `USBH_UserProcess()` USER CODE 区，SDK 只依赖 middleware/usbh 的公开 API。
+> 的 `USBH_UserProcess()` USER CODE 区，SDK 只依赖工程提供的 usbh 公开 API（`usbh_hid.h`）。
 
 # CubeMX修改内容
 
@@ -44,7 +49,9 @@ usb_host_port_event(USB_HOST_EVT_READY);  /* 在 USBH_UserProcess 内翻译 Cube
 
 ## 1. usbh_core.c —— 跳过 SET_WAKEUP_FEATURE
 
-> 本修复随 `library/middleware/usbh/Src/usbh_core.c` 一起入库（ST 厂商库**不重新生成**）。
+> 属 **CubeMX 生成的厂商库文件**，不进 SDK，须在工程侧
+> `Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c` 维护
+> （Middlewares 文件不随 CubeMX 重新生成，但更新固件包/换 Library 版本会被覆盖）。
 
 ```c
 case  HOST_SET_WAKEUP_FEATURE:
@@ -122,6 +129,14 @@ USBH_StatusTypeDef USBH_LL_DriverVBUS(USBH_HandleTypeDef *phost, uint8_t state)
 ```
 
 # 驱动版本
+
+---
+## V2.1
+	2026-09-17
+	边界修正：SDK 撤除 middleware.usbh（ST 厂商库属 CubeMX Middlewares，工程侧
+	已生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号），depends 改为
+	external:usbh；本模块只保留应用适配层。usbh_core.c 的 SET_WAKEUP_FEATURE
+	修复改为「工程侧维护」条目（工程侧已确认在位）。
 
 ---
 ## V2.0
