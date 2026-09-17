@@ -1,8 +1,8 @@
 /**
  * @file    oop_gpio_drv.c
- * @brief   OOP GPIO 抽象层 + 中断回调注册实现
- * @version V3.1
- * @date    2026-08-25
+ * @brief   OOP GPIO 抽象层 + 中断回调注册 + 引脚组（bank）批量读写实现
+ * @version V3.2
+ * @date    2026-09-17
  */
 
 #include "oop_gpio_drv.h"
@@ -280,4 +280,106 @@ void oop_gpio_irq_dispatch(uint16_t GPIO_Pin)
 
         reg->callback(GPIO_Pin, reg->user_data);
     }
+}
+
+/* ========== GPIO 引脚组（bank）：表驱动批量 / 位图读写 ========== */
+
+bool oop_gpio_bank_init(gpio_bank_t *bank, const gpio_pin_desc_t *desc, uint16_t count,
+                        bool active_high, uint8_t mode, uint8_t pull, uint8_t speed)
+{
+    if (bank == NULL || desc == NULL || count == 0) return false;
+
+    memset(bank, 0, sizeof(*bank));
+
+    if (count > OOP_GPIO_BANK_MAX) count = OOP_GPIO_BANK_MAX;
+    bank->count       = count;
+    bank->active_high = active_high;
+
+    for (uint16_t i = 0; i < count; i++) {
+        bank->pins[i] = desc[i];
+
+        if (desc[i].port == NULL) continue;   /* 允许引脚表留空位 */
+
+        gpio_pin_t p = {
+            .port        = desc[i].port,
+            .pin         = desc[i].pin,
+            .active_high = active_high,
+            .mode        = mode,
+            .pull        = pull,
+            .speed       = speed,
+            .alternate   = 0,
+        };
+        default_set_mode(&p, mode, pull, speed, 0);
+    }
+
+    bank->initialized = true;
+    return true;
+}
+
+uint32_t oop_gpio_bank_read_bits(const gpio_bank_t *bank)
+{
+    if (bank == NULL || !bank->initialized) return 0;
+
+    uint32_t bits = 0;
+
+    for (uint16_t i = 0; i < bank->count; i++) {
+        const gpio_pin_desc_t *d = &bank->pins[i];
+        if (d->port == NULL) continue;
+
+        GPIO_PinState st = HAL_GPIO_ReadPin(d->port, d->pin);
+        bool level = bank->active_high ? (st == GPIO_PIN_SET) : (st == GPIO_PIN_RESET);
+        if (level) bits |= (1UL << i);
+    }
+
+    return bits;
+}
+
+void oop_gpio_bank_write_bits(const gpio_bank_t *bank, uint32_t bits)
+{
+    if (bank == NULL || !bank->initialized) return;
+
+    for (uint16_t i = 0; i < bank->count; i++) {
+        const gpio_pin_desc_t *d = &bank->pins[i];
+        if (d->port == NULL) continue;
+
+        bool level = (((bits >> i) & 0x1U) != 0);
+        GPIO_PinState st = bank->active_high
+            ? (level ? GPIO_PIN_SET : GPIO_PIN_RESET)
+            : (level ? GPIO_PIN_RESET : GPIO_PIN_SET);
+        HAL_GPIO_WritePin(d->port, d->pin, st);
+    }
+}
+
+bool oop_gpio_bank_read(const gpio_bank_t *bank, uint16_t idx)
+{
+    if (bank == NULL || !bank->initialized || idx >= bank->count) return false;
+
+    const gpio_pin_desc_t *d = &bank->pins[idx];
+    if (d->port == NULL) return false;
+
+    GPIO_PinState st = HAL_GPIO_ReadPin(d->port, d->pin);
+    return bank->active_high ? (st == GPIO_PIN_SET) : (st == GPIO_PIN_RESET);
+}
+
+void oop_gpio_bank_write(const gpio_bank_t *bank, uint16_t idx, bool state)
+{
+    if (bank == NULL || !bank->initialized || idx >= bank->count) return;
+
+    const gpio_pin_desc_t *d = &bank->pins[idx];
+    if (d->port == NULL) return;
+
+    GPIO_PinState st = bank->active_high
+        ? (state ? GPIO_PIN_SET : GPIO_PIN_RESET)
+        : (state ? GPIO_PIN_RESET : GPIO_PIN_SET);
+    HAL_GPIO_WritePin(d->port, d->pin, st);
+}
+
+uint16_t oop_gpio_bank_count(const gpio_bank_t *bank)
+{
+    return (bank != NULL && bank->initialized) ? bank->count : 0;
+}
+
+bool oop_gpio_bank_is_initialized(const gpio_bank_t *bank)
+{
+    return (bank != NULL && bank->initialized);
 }

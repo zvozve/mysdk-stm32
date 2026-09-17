@@ -1,8 +1,12 @@
 /**
  * @file    oop_gpio_drv.h
- * @brief   OOP GPIO 抽象层 + 中断回调注册
- * @version V3.1
- * @date    2026-08-25
+ * @brief   OOP GPIO 抽象层 + 中断回调注册 + 引脚组（bank）批量读写
+ * @version V3.2
+ * @date    2026-09-17
+ *
+ * @note    V3.2 新增 gpio_bank_t：把一组同向引脚当整体做扫描/输出（位图读写），
+ *          引脚表由工程 board_cfg 注入。适用于 16 路输入点采集、16 路继电器
+ *          位图输出等批处理场景，RAM 占用按 8 字节/路计，远小于逐路 gpio_dev_t。
  */
 
 #ifndef __OOP_GPIO_DRV_H
@@ -109,6 +113,66 @@ void oop_gpio_set_mode_af(gpio_dev_t *dev, uint8_t mode, uint8_t pull, uint8_t s
 /* 原始操作宏（高频场景，忽略 active_high，直接操作硬件电平） */
 #define OOP_GPIO_READ_RAW(dev)      HAL_GPIO_ReadPin((dev)->pin.port, (dev)->pin.pin)
 #define OOP_GPIO_WRITE_RAW(dev, s)  HAL_GPIO_WritePin((dev)->pin.port, (dev)->pin.pin, (s))
+
+/* ========== GPIO 引脚组（bank）：表驱动批量 / 位图读写 ========== */
+
+/**
+ * @note  用途：把「一组同向引脚」当作整体做扫描与输出（如 16 路输入点采集成
+ *        一个位图、16 路继电器按位图一次性写出）。引脚表由工程 board_cfg 注入，
+ *        本模块不持有任何板级信息。相比逐路 gpio_dev_t，bank 只存引脚描述
+ *        （8 字节/路），RAM 占用显著更小。
+ */
+
+#define OOP_GPIO_BANK_MAX   32   /* 单组最大路数（位图为 uint32_t） */
+
+/** 一路引脚的物理描述（引脚表元素） */
+typedef struct {
+    GPIO_TypeDef *port;
+    uint16_t      pin;
+} gpio_pin_desc_t;
+
+/** 引脚组实例（由调用方持有） */
+typedef struct {
+    gpio_pin_desc_t pins[OOP_GPIO_BANK_MAX];
+    uint16_t        count;        /* 实际路数，<= OOP_GPIO_BANK_MAX */
+    bool            active_high;  /* 逻辑极性，组内所有路一致 */
+    bool            initialized;
+} gpio_bank_t;
+
+/**
+ * @brief  按引脚表初始化一组 IO（表驱动）
+ * @param  bank        引脚组实例
+ * @param  desc        引脚描述表（如工程 board_cfg.h 的 BOARD_DIN_MAP）
+ * @param  count       路数（超过 OOP_GPIO_BANK_MAX 按上限截断）
+ * @param  active_high 逻辑极性：true=高有效
+ * @param  mode/pull/speed 逐引脚初始化参数（见 OOP_GPIO_MODE_* / PULL_* / SPEED_*）
+ * @retval true 成功
+ * @note   desc 只需在调用期间有效（内容拷贝进 bank）。
+ */
+bool oop_gpio_bank_init(gpio_bank_t *bank, const gpio_pin_desc_t *desc, uint16_t count,
+                        bool active_high, uint8_t mode, uint8_t pull, uint8_t speed);
+
+/**
+ * @brief  一次读回整组逻辑电平
+ * @return 位图，bit i = 第 i 路逻辑电平；未初始化时返回 0
+ */
+uint32_t oop_gpio_bank_read_bits(const gpio_bank_t *bank);
+
+/**
+ * @brief  按位图写整组
+ * @param  bits 位图，bit i=1 → 第 i 路置为有效电平
+ */
+void oop_gpio_bank_write_bits(const gpio_bank_t *bank, uint32_t bits);
+
+/** 单路读（索引越界或未初始化返回 false） */
+bool oop_gpio_bank_read(const gpio_bank_t *bank, uint16_t idx);
+
+/** 单路写（索引越界或未初始化为空操作） */
+void oop_gpio_bank_write(const gpio_bank_t *bank, uint16_t idx, bool state);
+
+/** 组内路数 / 是否已初始化 */
+uint16_t oop_gpio_bank_count(const gpio_bank_t *bank);
+bool     oop_gpio_bank_is_initialized(const gpio_bank_t *bank);
 
 /* 中断回调 */
 bool oop_gpio_irq_register(GPIO_TypeDef *port, uint16_t pin,
