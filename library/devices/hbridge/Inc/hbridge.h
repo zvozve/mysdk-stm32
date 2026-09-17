@@ -24,9 +24,10 @@
  *   Dead-time is automatically inserted on FORWARD <-> REVERSE transitions.
  *   Both DMA start and SetState calls check for dead-time.
  *
- * SDK 版：原工程 Hardware/hbridge，TIM 寄存器与 DMA 操作已 funnel 到
- * chip/oop_tim 与 chip/oop_dma（HAL 唯一入口），本模块不再直戳 TIMx 寄存器
- * 或调用 HAL_TIMxx / HAL_DMAxx。HBRIDGE_ 前缀名称保持，工程调用点零改动。
+ * SDK 版：原工程 Hardware/hbridge，现位于 devices 层（外挂 H 桥电路驱动，
+ * 非 STM32 片上外设）。TIM 寄存器与 DMA 操作已 funnel 到 chip/oop_tim 与
+ * chip/oop_dma（HAL 唯一入口），本模块不再直戳 TIMx 寄存器或调用
+ * HAL_TIMxx / HAL_DMAxx，device 层只调 oop_*。HBRIDGE_ 前缀名称保持，工程调用点零改动。
  * ============================================================ */
 
 #ifndef __HBRIDGE_H__

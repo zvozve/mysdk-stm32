@@ -173,6 +173,22 @@
       ]
     },
     {
+      "id": "chip.oop_spi",
+      "name": "oop_spi",
+      "layer": "chip",
+      "category": "spi",
+      "version": "V1.0",
+      "updated": "2026-09-17",
+      "path": "chip/oop_spi",
+      "description": "SPI 总线 OOP 封装（HAL_SPI_* 唯一入口），与 oop_i2c/oop_uart 同构；device 层（mcp42010 数字电位器）统一走本封装，不直调 HAL_SPI_*。句柄由 oop_spi_init 注入，CS 片选由调用方经 oop_gpio 管理。",
+      "depends": ["chip.platform"],
+      "backends": ["hal"],
+      "files": [
+        "chip/oop_spi/Inc/oop_spi.h",
+        "chip/oop_spi/Src/oop_spi.c"
+      ]
+    },
+    {
       "id": "chip.oop_adc",
       "name": "oop_adc",
       "layer": "chip",
@@ -189,35 +205,35 @@
       ]
     },
     {
-      "id": "chip.hbridge",
+      "id": "devices.hbridge",
       "name": "hbridge",
-      "layer": "chip",
+      "layer": "devices",
       "category": "pwm",
       "version": "V1.0",
-      "updated": "2026-09-16",
-      "path": "chip/hbridge",
-      "description": "H 桥驱动（TIM1/TIM8 突发 DMA 波形 + 死区 + 同步）；TIM 寄存器与 DMA 全 funnel 到 chip.oop_tim / chip.oop_dma（HAL 唯一入口），本模块不再直戳 TIMx->* 或调用 HAL_TIM_*/HAL_DMA_*。应用只给 {state,duty} 帧，内部转 4-CH CCR，构造上杜绝直通。由工程 Hardware/hbridge 迁入。",
+      "updated": "2026-09-17",
+      "path": "devices/hbridge",
+      "description": "H 桥驱动（外挂 H 桥电路，非 STM32 片上外设；TIM1/TIM8 突发 DMA 波形 + 死区 + 同步）。坐 chip.oop_tim / chip.oop_dma 之上（HAL 唯一入口），本模块不再直戳 TIMx->* 或调用 HAL_TIM_*/HAL_DMA_*；应用只给 {state,duty} 帧，内部转 4-CH CCR，构造上杜绝直通。由工程 Hardware/hbridge 迁入。",
       "depends": ["chip.platform", "chip.oop_tim", "chip.oop_dma"],
-      "backends": ["hal"],
+      "backends": ["chip.oop_tim", "chip.oop_dma"],
       "files": [
-        "chip/hbridge/Inc/hbridge.h",
-        "chip/hbridge/Src/hbridge.c"
+        "devices/hbridge/Inc/hbridge.h",
+        "devices/hbridge/Src/hbridge.c"
       ]
     },
     {
-      "id": "chip.mcp42010",
+      "id": "devices.mcp42010",
       "name": "mcp42010",
-      "layer": "chip",
+      "layer": "devices",
       "category": "spi",
       "version": "V1.0",
-      "updated": "2026-09-16",
-      "path": "chip/mcp42010",
-      "description": "MCP42010 数字电位器（SPI），坐 HAL_SPI_*/HAL_GPIO_* 之上；SPI 句柄与 CS 引脚由 MCP42010_Init 注入。由工程 Hardware/mcp42010 迁入。",
-      "depends": ["chip.platform"],
-      "backends": ["hal"],
+      "updated": "2026-09-17",
+      "path": "devices/mcp42010",
+      "description": "MCP42010 数字电位器（外挂 SPI 芯片，非 STM32 片上外设）；SPI 走 chip/oop_spi（HAL_SPI_* 唯一入口），CS 走 oop_gpio，device 层不直调 HAL。SPI 句柄与 CS 引脚由 MCP42010_Init 注入。由工程 Hardware/mcp42010 迁入。",
+      "depends": ["chip.platform", "chip.oop_spi", "chip.oop_gpio"],
+      "backends": ["chip.oop_spi"],
       "files": [
-        "chip/mcp42010/Inc/mcp42010.h",
-        "chip/mcp42010/Src/mcp42010.c"
+        "devices/mcp42010/Inc/mcp42010.h",
+        "devices/mcp42010/Src/mcp42010.c"
       ]
     },
     {
@@ -418,9 +434,9 @@
       "version": "V1.0",
       "updated": "2026-09-17",
       "path": "devices/elecMgt",
-      "description": "电磁铁动作管理器（core 生成引擎 + step 参数→帧 + pid 预留），坐 chip.hbridge（突发 DMA 波形）与 chip.oop_dwt（计时）之上；TIM/DMA 句柄由工程经 EM_Init(mode, &em_hw_t) 注入，SDK 内不 extern 任何全局句柄。frame→point 双缓冲、保持规则（磁铁位置 + 触发方向）、动作锁定（反弹错误）均为纯逻辑，板无关。由工程 Hardware/elecMgt 迁入。",
-      "depends": ["chip.hbridge", "chip.oop_dwt", "middleware.SEGGER_RTT"],
-      "backends": ["chip.hbridge"],
+      "description": "电磁铁动作管理器（core 生成引擎 + step 参数→帧 + pid 预留），坐 devices.hbridge（突发 DMA 波形）与 chip.oop_dwt（计时）之上；TIM/DMA 句柄由工程经 EM_Init(mode, &em_hw_t) 注入，SDK 内不 extern 任何全局句柄。frame→point 双缓冲、保持规则（磁铁位置 + 触发方向）、动作锁定（反弹错误）均为纯逻辑，板无关。由工程 Hardware/elecMgt 迁入。",
+      "depends": ["devices.hbridge", "chip.oop_dwt", "middleware.SEGGER_RTT"],
+      "backends": ["devices.hbridge"],
       "files": [
         "devices/elecMgt/Inc/elecMgt_core.h",
         "devices/elecMgt/Inc/elecMgt_step.h",
@@ -569,6 +585,7 @@
     "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
     "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。",
     "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。",
-    "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，Modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。"
+    "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，Modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。",
+    "★ 2026-09-17 分层修正（用户指出 chip=STM32 仅）：chip.mcp42010 → devices.mcp42010（外部 SPI 电位器，非片上外设；SPI 改走新建 chip.oop_spi，CS 走 oop_gpio，device 层彻底去 HAL 直调）；chip.hbridge → devices.hbridge（外部 H 桥电路，坐 oop_tim/oop_dma 之上）。新增 chip.oop_spi（HAL_SPI_* 唯一入口，对齐 oop_i2c/oop_uart）。devices.elecMgt 的 depends 由 chip.hbridge 改为 devices.hbridge。"
   ]
 }

@@ -1,16 +1,18 @@
 /* ============================================================
  * mcp42010.h - MCP42010 数字电位器驱动 (SPI)
  *
- * SDK 版：由工程 Hardware/mcp42010 迁入 chip 层。去掉对 CubeMX main 头
- * 与 extern hspi1 硬编码的依赖，改为 MCP42010_Init(hspi, cs_port, cs_pin)
- * 注入 SPI 句柄与 CS 引脚（板级绑定）。直调 HAL_SPIxx / HAL_GPIOxx 合法
- * （chip 层）。MCP42010 前缀名称保持，工程调用点仅增加一次 Init 调用。
+ * SDK 版：由工程 Hardware/mcp42010 迁入 devices 层（外挂 SPI 电位器，
+ * 非 STM32 片上外设）。去掉对 CubeMX main 头与 extern hspi1 硬编码的依赖，
+ * 改为 MCP42010_Init(hspi, cs_port, cs_pin) 注入 SPI 句柄与 CS 引脚
+ * （板级绑定）。SPI 走 chip/oop_spi（HAL_SPI_* 唯一入口），CS 走
+ * oop_gpio，device 层不直调 HAL。MCP42010 前缀名称保持，工程调用点零改动。
  * ============================================================ */
 
 #ifndef __MCP42010_H__
 #define __MCP42010_H__
 
 #include "hal_platform.h"   /* STM32 系列 HAL 统一入口（SPI/GPIO 句柄类型） */
+#include "oop_gpio_drv.h"   /* CS 片选（device 层经 oop_gpio 管理，不碰 HAL） */
 
 #define MCP42010_CMD_WR 0x10    /* 写命令 (高4位固定为0) */
 #define MCP42010_CMD_RD 0x0C    /* 读 Wiper 0 命令 (0x0C) */
@@ -20,9 +22,7 @@
 #define MCP42010_WIPER_MAX  255
 
 typedef struct {
-    SPI_HandleTypeDef *hspi;      /* SPI 句柄 */
-    GPIO_TypeDef      *cs_port;   /* CS 引脚端口 */
-    uint16_t           cs_pin;    /* CS 引脚 */
+    gpio_dev_t  cs;          /* CS 片选（oop_gpio 管理，低有效） */
 } mcp42010_spi_t;
 
 /**
