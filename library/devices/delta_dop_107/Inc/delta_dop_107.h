@@ -26,10 +26,20 @@
 #include <stdbool.h>
 #include "modbus_core.h"   /* modbus_t */
 #include "hmi_modbus_addr.h" /* HMI Modbus 地址总表（统一管理）
-                              *   波形数据  = MB_REG_WAVE_A/B
-                              *   参考线    = MB_REG_LINE_ACT/BNC_A/B
-                              *   控制寄存器= MB_REG_HMI_CTRL（值 MB_HMI_CTRL_*）
-                              *   错误标记  = MB_COIL_ERR_MARK */
+                             *   波形数据  = MB_REG_WAVE_A/B
+                             *   参考线    = MB_REG_LINE_ACT/BNC_A/B
+                             *   控制寄存器= MB_REG_HMI_CTRL（值 MB_HMI_CTRL_*）
+                             *   错误标记  = MB_COIL_ERR_MARK */
+#include "SEGGER_RTT_Log.h" /* RTT_LOG_TAG 引擎：模块专属标签复用 */
+
+/* ========== 模块专属 RTT 标签 ==========
+ * HMI_LOG 是本驱动（HMI 屏波形写出）的专属标签，定义在本设备头而非通用
+ * RTT_LOG.h（通用头只保留 RTT/SYS/ERR/WARN/INFO/DBG/HEX）。driver 与其调用方
+ * （task_waveform.c）都 #include 本头，因此共享同一 "HMI" 标签。 */
+#ifndef HMI_LOG_ENABLE
+    #define HMI_LOG_ENABLE     0
+#endif
+#define HMI_LOG(fmt, ...)     RTT_LOG_TAG(HMI_LOG_ENABLE,    "HMI",    fmt, ##__VA_ARGS__)
 
 /* ========== 波形/分帧常量（屏规则） ========== */
 #define DOP107_WAVE_LEN        300    /* 单路波形点数 */
