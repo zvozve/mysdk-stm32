@@ -14,18 +14,14 @@
  *   - bsp_dwt.h -> chip/oop_dwt.h（bsp_GetCycleCount -> oop_GetCycleCount，
  *     bsp_IsTimeout -> oop_IsTimeout）
  *   - HMI 寄存器地址仍来自用户配置头 hmi_modbus_addr.h（工程提供，随 include path
- *     可见），与 board_cfg.h 同理；RTT 标签 HMI_LOG 由工程可选提供，缺省退化
- *     到 SDK 的 DBG_LOG（与本 SDK RTT_USE_RTOS / MB_USE_RTOS 的 #ifndef 守卫同构）。
+ *     可见），与 board_cfg.h 同理；RTT 标签 HMI_LOG 定义在本驱动头 delta_dop_107.h
+ *     内（通用头 SEGGER_RTT_Log.h 只保留 RTTSYS/ERR/WARN/INFO/DBG/HEX）。
  * ============================================================ */
 
 #include "delta_dop_107.h"
 #include "modbus_master.h"
 #include "oop_dwt.h"            /* oop_GetCycleCount / oop_IsTimeout：诊断心跳节流 */
 #include "SEGGER_RTT_Log.h"
-
-#ifndef HMI_LOG
-#define HMI_LOG DBG_LOG         /* 工程未提供 HMI_LOG 标签时退化到 SDK 默认标签 */
-#endif
 
 #define DOP107_FLUSH_CHUNKS   ((DOP107_WAVE_LEN + DOP107_WAVE_CHUNK - 1) / DOP107_WAVE_CHUNK)  /* 3 */
 #define DOP107_LINE_ALL_MASK  0x0Fu
