@@ -115,6 +115,40 @@ static void rs485_rx_enable(uart_drv_t *drv) {
 }
 
 // ===========================
+// 7 位数据软件模拟（F4 硬件无 7 位字长，用 8N1 + 软件校验实现，支持 7E1 / 7O1）
+//   线格式：1 起始 + 7 数据位 + 1 校验位(偶/奇) + 1 停止 = 10 位，与 8N1 等长（不会报 Frame error）。
+//   收到字节 v = data_7 | (parity<<7)；发出字节 = data_7 | (parity_bit(data_7)<<7)。
+// ===========================
+static uint8_t uart_7bit_parity_bit(uint8_t d, uint8_t odd) {
+    uint8_t c = 0;
+    for (uint8_t m = 1; m; m <<= 1) if (d & m) c++;
+    uint8_t even_bit = (c & 1U) ? 1U : 0U;   // 偶校验位：使 (数据1的个数 + 校验位) 为偶数
+    return odd ? (uint8_t)(even_bit ^ 1U) : even_bit;  // 奇校验 = 偶校验位取反
+}
+
+// RX：把 8N1 收下的字节还原为 7 位数据；校验成立当且仅当 popcount(v) 符合指定校验
+static void uart_7bit_decode(uint8_t *buf, uint16_t len, uint8_t odd, uint8_t *parity_err) {
+    uint8_t pe = 0;
+    for (uint16_t i = 0; i < len; i++) {
+        uint8_t v = buf[i];
+        uint8_t ones = 0;
+        for (uint8_t m = 1; m; m <<= 1) if (v & m) ones++;
+        uint8_t want_even = (ones % 2 == 0);
+        if (odd ? want_even : !want_even) pe = 1;   // 奇校验要求 popcount 为奇；偶校验要求为偶
+        buf[i] = v & 0x7FU;                         // 还原 7 位数据（bit7 为校验位，丢弃）
+    }
+    if (parity_err) *parity_err = pe;
+}
+
+// TX：把 7 位数据字节拼成线格式（仅低 7 位有效）
+static void uart_7bit_encode(uint8_t *buf, uint16_t len, uint8_t odd) {
+    for (uint16_t i = 0; i < len; i++) {
+        uint8_t d = buf[i] & 0x7FU;
+        buf[i] = d | (uart_7bit_parity_bit(d, odd) << 7);
+    }
+}
+
+// ===========================
 // 启动接收
 // ===========================
 static void start_rx(uart_drv_t *drv) {
@@ -144,7 +178,9 @@ void uart_drv_init(uart_drv_t *drv, UART_HandleTypeDef *huart, uart_rs485_t *rs4
     drv->rs485 = rs485;
     drv->state = UART_DRV_IDLE;
     drv->locked = 0;
-    
+    drv->emulate_7bit = 0;
+    drv->emulate_7bit_parity = 0;
+
     drv->cfg.baudrate = huart->Init.BaudRate;
     drv->cfg.word_length = huart->Init.WordLength;
     drv->cfg.stop_bits = huart->Init.StopBits;
@@ -214,6 +250,13 @@ int uart_drv_send(uart_drv_t *drv, const uint8_t *data, uint16_t len) {
     HAL_UART_DMAStop(drv->huart);
 
     memcpy(drv->tx_buf, data, len);
+
+    /* ★ 7 位数据软件模拟（发送侧）：把低 7 位 + 软件校验位拼成 8 位线格式再发，
+     *   与 RX 的 uart_7bit_decode 对称。缺此步时 emulate_7bit 只作用于接收，
+     *   发送端不带校验位 → 对端按 7E1/7O1 采样会判校验错误，7E1 透传单向失效。★ */
+    if (drv->emulate_7bit) {
+        uart_7bit_encode(drv->tx_buf, len, drv->emulate_7bit_parity);
+    }
 
     rs485_tx_enable(drv);
     drv->state = UART_DRV_TX_BUSY;
@@ -364,6 +407,19 @@ void uart_drv_on_idle(UART_HandleTypeDef *huart) {
     }
     
     if (drv->rx_len > 0) {
+        // 7 位数据模拟：先把 8N1 收下的字节还原为 7 位数据并软件校验
+        if (drv->emulate_7bit) {
+            uint8_t pe = 0;
+            uart_7bit_decode(drv->rx_buf, drv->rx_len, drv->emulate_7bit_parity, &pe);
+            if (pe) {
+                RTT_LOG("[UART] 7-bit(%s) parity error, drop frame",
+                        drv->emulate_7bit_parity ? "ODD" : "EVEN");
+                HAL_UART_DMAStop(drv->huart);
+                __HAL_UART_CLEAR_IDLEFLAG(huart);
+                start_rx(drv);
+                return;
+            }
+        }
         HAL_UART_DMAStop(drv->huart);
         drv->state = UART_DRV_DATA_READY;
         // ★ locked 默认为 0，等待上层调用 get_packet ★
