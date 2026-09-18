@@ -28,7 +28,8 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 扫描范围（跳过第三方中间件与 cJSON）
-SCAN_DIRS = ["library/chip", "library/devices", "library/protocols"]
+# services/ 是系统服务层（bootloader / ota 等），与 devices/protocols 同样禁止直调 HAL
+SCAN_DIRS = ["library/chip", "library/devices", "library/protocols", "library/services"]
 
 # 1) 禁止包含的 CubeMX 工程生成头
 FORBIDDEN_INCLUDES = [
@@ -107,13 +108,12 @@ def scan_file(path, allow_hal=False):
 def main():
     strict = "--strict" in sys.argv[1:]
     total = 0
-    # 仅 chip/ 层允许直接调用 HAL；devices/ 与 protocols/ 禁止直调 HAL_*
-    _LAYER = {"library/chip": "chip", "library/devices": "devices", "library/protocols": "protocols"}
+    # 仅 chip/ 层允许直接调用 HAL；devices/ / protocols/ / services/ 一律禁止直调 HAL_*
     for d in SCAN_DIRS:
         base = os.path.join(ROOT, d)
         if not os.path.isdir(base):
             continue
-        allow_hal = (_LAYER.get(d) == "chip")
+        allow_hal = d.endswith("/chip")
         for root, _dirs, files in os.walk(base):
             # 跳过第三方
             if "middleware" in root.replace(ROOT, ""):
