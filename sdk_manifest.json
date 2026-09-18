@@ -769,9 +769,9 @@
       "name": "mqtt",
       "layer": "protocols",
       "category": "net",
-      "version": null,
+      "version": "V1.0",
       "path": "protocols/mqtt",
-      "description": "MQTT 客户端（codec + client，纯 TCP 1883，依赖传输层注入）。",
+      "description": "MQTT 客户端。线缆层编解码使用 Paho MQTTPacket（vendored，零 HAL/OS 依赖），传输由用户注入；纯 TCP 1883，无 RTOS 依赖。",
       "depends": [
         "middleware.SEGGER_RTT",
         "middleware.cJSON"
@@ -781,9 +781,23 @@
       ],
       "files": [
         "protocols/mqtt/Inc/mqtt_client.h",
-        "protocols/mqtt/Inc/mqtt_codec.h",
+        "protocols/mqtt/Inc/mqtt_json_payload.h",
+        "protocols/mqtt/Inc/MQTTPacket.h",
+        "protocols/mqtt/Inc/MQTTConnect.h",
+        "protocols/mqtt/Inc/MQTTPublish.h",
+        "protocols/mqtt/Inc/MQTTSubscribe.h",
+        "protocols/mqtt/Inc/MQTTUnsubscribe.h",
+        "protocols/mqtt/Inc/MQTTFormat.h",
+        "protocols/mqtt/Inc/StackTrace.h",
         "protocols/mqtt/Src/mqtt_client.c",
-        "protocols/mqtt/Src/mqtt_codec.c"
+        "protocols/mqtt/Src/mqtt_json_payload.c",
+        "protocols/mqtt/Src/MQTTPacket.c",
+        "protocols/mqtt/Src/MQTTConnectClient.c",
+        "protocols/mqtt/Src/MQTTSerializePublish.c",
+        "protocols/mqtt/Src/MQTTDeserializePublish.c",
+        "protocols/mqtt/Src/MQTTSubscribeClient.c",
+        "protocols/mqtt/Src/MQTTUnsubscribeClient.c",
+        "protocols/mqtt/Src/MQTTFormat.c"
       ]
     },
     {
