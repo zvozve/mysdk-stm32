@@ -14,7 +14,7 @@
 
 ## 版本
 
-- SDK 版本：**0.8.0**（2026-09-18）
+- SDK 版本：**0.10.0**（2026-09-18）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
 - 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -24,13 +24,13 @@
 mystm32-sdk/
 ├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
-│   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ oop_spi/ oop_flash/ platform/
+│   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ oop_spi/ oop_flash/ oop_boot/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
 │   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/ spi_nor_flash/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ cli/ mqtt/ wol/
 │   ├── services/     # 系统服务（板无关，同 devices/protocols 禁止直调 HAL）
-│   │   ├── ota_core/ ota_src_mem/
+│   │   ├── ota_core/ ota_src_mem/ bootloader/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
@@ -165,7 +165,39 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+### 新增 chip.oop_boot + services.bootloader（2026-09-18，v0.10.0）
 
+BL 外壳落地（P2）。方案文档：`ota-demo-stm32/doc/01~06`。
+
+- **新增 `chip.oop_boot`（V1.0）**：启动跳转 —— 向量表校验 / 外设复位 / VTOR / MSP / 跳转。
+  放 chip 层的原因是 HAL 红线：跳转 = 一组芯片内核操作（VTOR/MSP/NVIC/SysTick）+ `HAL_DeInit()`，
+  只有 `chip/` 允许出现 HAL 符号；`services.bootloader` 只负责「决定跳到哪、凭什么跳」。
+  两处顺序不能颠倒：① SP 合法性检查必须在 `__set_MSP()` **之前**做完（换栈后连普通 C 函数
+  都不能调，故跳转实现为 naked 汇编函数，函数体不碰栈）；② 开中断放在换栈之后、`bx` 之前。
+  向量表判据保守但零成本（读 8 字节）：SP 落 SRAM 区且 4 字节对齐、PC 的 Thumb 位为 1 ——
+  能挡下空区（`0xFF...`）/ 未下载 / 写坏的槽。另注意 CMSIS 里**没有**
+  `NVIC_ClearAllPendingIRQ()`，且 `HAL_SuspendTick()` 只关中断不停计数器，两者都要自己处理。
+
+- **新增 `services.bootloader`（V1.0）**：BL 决策状态机
+  `CFG → ACTIVATE → HEALTH → VERIFY → READY`（或 `RESCUE`），全程非阻塞步进
+  （单步上限 = 一个擦除单位，或一次 `buf_len` 的读+写），BL 里仍能喂狗、刷进度、闪灯。
+  - **职责边界**：BL 只判分区表自洽、目标槽向量表合法、刚下载完的镜像 CRC；
+    「业务是否正常」只有 APP 知道，由 APP 自检后调 `ota_confirm()` 表达。在那之前新槽算
+    「试运行」，`boot_try` 每上电 +1（**必须落盘**，否则每次复位都从 0 开始、回滚等于不存在），
+    超过 `max_try` 清 `trial_slot` 跳回 `active_slot`。**回滚瞬时且零搬运** —— 旧槽从未被动过。
+  - **已确认状态下正常开机零擦写**：`boot_health_apply()` 返回 0 表示「无需落盘」，
+    `boot_jump()` 也只在 `run_slot` 变化时写。频繁复位不会把 CFG 扇区写死。
+  - **SWITCH 与 MOVE 共用同一段代码**：差异只有 `pending_action` 与分区表拓扑。
+    MOVE 的断电安全靠两条 ——「暂存区在搬完之前是只读源」+「按擦除单位搬、先写数据后写进度、
+    重启后从进度所在单位起点重搬」，因此**天然幂等**；明确否决「运行区↔暂存区就地交换」。
+  - **安全闸**：`boot_init()` 把 `chip.oop_flash` 的安全闸收窄成
+    `[BOOT 区末尾, 内部 Flash 末尾)`，即使地址算错也擦不到 BL 自己；分区表未登记 BOOT 区则拒绝启动。
+
+- **验证**：4 个源文件 × F1/F4/G4 共 12 个组合 `-Wall -Wextra -Wpedantic` 零警告；
+  `boot_health` 是**纯逻辑**（只依赖 `ota_cfg.h` 的数据结构、无 HAL/chip 依赖），
+  在 PC 上用 host gcc 真跑通 22 项断言（含 `max_try` 边界、回滚后稳态零写、`active_slot` 越界兜底）。
+- `tools/oop_audit.py --strict` 通过。
+- 待建：`protocols.ymodem` + `services.ota` + `services.ota_src_uart`（P3）。
 ### 新增 services.ota_core + services.ota_src_mem + tools/ota_pack.py（2026-09-18，v0.9.0）
 
 OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
