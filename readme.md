@@ -25,7 +25,7 @@ mystm32-sdk/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
 │   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
-│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/ oled12864/ led_matrix/
+│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/ oled12864/ led_matrix/ ws1850s/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ mqtt/ wol/
 │   └── middleware/   # 第三方调试/传输库
@@ -139,6 +139,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **LwIP 自带 mqtt 冲突**：需 EXCLUDE 掉 `LwIP/apps/mqtt/mqtt.c`，避免与 `protocols.mqtt` 同名符号冲突。`protocols.mqtt` 的线缆编解码已改用 vendored 的 Eclipse Paho `MQTTPacket`（零 HAL/OS 依赖、纯 TCP 1883、传输由用户注入），详见 `library/protocols/mqtt/readme.md`。
 - **LwIP 接入完整避坑清单（CubeMX DNS / RTOS 任务栈 512×4 / MicroLIB / PHY 9 脚电源 / 晶振 / LED 检查）**：见 `library/devices/lan8720a/readme.md`。
 - **OLED 驱动（oled12864）文本/字模用法**：字模由用户按 `oled_font_t` 注入 + `OLED_RegisterFont` 注册，再 `OLED_DrawString` 显示；驱动不内置字库，详见 `library/devices/oled12864/readme.md`。
+- **RFID 读卡（ws1850s）异步用法**：`uart_drv_t*` 注入 + 周期调用 `ws1850s_process()`（拉取收包/状态机），卡片/结果经 `card_cb`/`result_cb` 回调上抛，全程不阻塞；详见 `library/devices/ws1850s/readme.md`。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
@@ -149,6 +150,10 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   **task.json 与 sdk_run.py 都不硬编码 SDK 路径**；换 SDK 目录只改 `sdk.toml` 的 `sdk = "..."` 一行。
 
 ## 版本变更记录
+
+### 新增 devices.ws1850s（2026-09-18）— RFID 读卡器异步驱动
+
+- 新增 `devices/ws1850s`（V1.0）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。按原工程 `rfid-driver` 的**异步版**逻辑迁入（另一版为阻塞忙等，未采用）：`uart_drv_t*` 注入 + `ws1850s_start()` 初始化状态机 + `ws1850s_process()` 拉取收包，结果/卡片/状态经回调上抛，全程不阻塞，与 `devices.hlk_rm58s` 同构。
 
 ### 仓库结构三层化（2026-08-29）
 

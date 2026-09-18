@@ -469,6 +469,29 @@
       ]
     },
     {
+      "id": "devices.ws1850s",
+      "name": "ws1850s",
+      "layer": "devices",
+      "category": "rfid",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "devices/ws1850s",
+      "description": "WS1850S RFID 读卡器驱动（MFRC522/RC522 国产兼容，UART 二进制帧协议）。异步/非阻塞：uart_drv_t* 注入，ws1850s_process() 拉取收包+状态机，结果/卡片/状态经回调上抛，全程不阻塞；支持主动读卡号+数据（card_cb）与按需读块（result_cb）。由工程 rfid-driver 异步版迁入。",
+      "depends": [
+        "chip.oop_uart",
+        "chip.oop_dwt",
+        "chip.oop_gpio",
+        "middleware.SEGGER_RTT"
+      ],
+      "backends": [
+        "chip.oop_uart"
+      ],
+      "files": [
+        "devices/ws1850s/Inc/ws1850s.h",
+        "devices/ws1850s/Src/ws1850s.c"
+      ]
+    },
+    {
       "id": "devices.led_matrix",
       "name": "led_matrix",
       "layer": "devices",
@@ -868,6 +891,7 @@
     "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，Modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。",
     "★ 2026-09-17 分层修正（用户指出 chip=STM32 仅）：chip.mcp42010 → devices.mcp42010（外部 SPI 电位器，非片上外设；SPI 改走新建 chip.oop_spi，CS 走 oop_gpio，device 层彻底去 HAL 直调）；chip.hbridge → devices.hbridge（外部 H 桥电路，坐 oop_tim/oop_dma 之上）。新增 chip.oop_spi（HAL_SPI_* 唯一入口，对齐 oop_i2c/oop_uart）。devices.elecMgt 的 depends 由 chip.hbridge 改为 devices.hbridge。",
     "★ 2026-09-17 入库整理（mcu_hw_1_4 Old/Hardware 迁移）：新增 devices.ch374u（CH374 SPI USB Host 控制器）、devices.ds1302（3 线 RTC）、devices.usb_host（USBH HID 应用适配层）、并补登此前漏登的 devices.ch9434；chip.oop_spi 由单例改为多实例（oop_spi_dev_t，hspi2/hspi3 可并存）。bsp_dwt → chip.oop_dwt、uart_port → chip.oop_uart、heart_beat/lan8720a 沿用既有 SDK 模块，GPIO 引脚表归工程 board_cfg + Tasks，均不入 SDK。CubeMX 生成文件（usbh_conf.c / usbh_platform.c / usb_host.c 等）一律不进 SDK，其手工修复记录在 library/devices/usb_host/readme.md 与 library/devices/ch374u/readme.md。",
-    "★ 2026-09-17 修正（SDK 收纳边界）：SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不引入 CubeMX 生成的厂商库。故撤除 middleware.usbh（ST USB Host Library 是 CubeMX 的 Middlewares 组件，工程侧已由 CubeMX 生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号）；devices.usb_host 的依赖改为 external:usbh —— 声明「由宿主工程提供」，与 protocols.wol 的 external:lwip 同构，只保留应用适配层。usbh_core.c 的「跳过 SET_WAKEUP_FEATURE」修复属 CubeMX 生成文件的手工修复，须保留在工程侧 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c，不在 SDK 内。另：移除时发现本机 git rm -r <dir> 会连带删除同层其它工作区文件，改目录请走文件系统删除 + git add -A。"
+    "★ 2026-09-17 修正（SDK 收纳边界）：SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不引入 CubeMX 生成的厂商库。故撤除 middleware.usbh（ST USB Host Library 是 CubeMX 的 Middlewares 组件，工程侧已由 CubeMX 生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号）；devices.usb_host 的依赖改为 external:usbh —— 声明「由宿主工程提供」，与 protocols.wol 的 external:lwip 同构，只保留应用适配层。usbh_core.c 的「跳过 SET_WAKEUP_FEATURE」修复属 CubeMX 生成文件的手工修复，须保留在工程侧 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c，不在 SDK 内。另：移除时发现本机 git rm -r <dir> 会连带删除同层其它工作区文件，改目录请走文件系统删除 + git add -A。",
+    "★ 2026-09-18 入库 devices.ws1850s（V1.0，异步版）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。原工程 rfid-driver 有「阻塞等待（mcu-main，TIM6_Delay_ms 忙等）」与「异步状态机（mcu-dev）」两版，本次仅按异步逻辑迁入 SDK：uart_drv_t* 注入 + ws1850s_process() 拉取收包 + 回调（result/card/state），全程不阻塞，与 devices.hlk_rm58s 同构。帧解析忠实移植原 demo（cmd 应答/主动读卡帧字段），未上板实测，首次使用请结合 RTT 日志校验帧字段。"
   ]
 }
