@@ -1,30 +1,23 @@
 #include "modbus_core.h"    // 提供 MODBUS_ENABLE_TCP（默认 0，可被 CMake -D 覆盖）
 #include "modbus_tcp.h"
-
 #if MODBUS_ENABLE_TCP
-
 /* 诊断日志开关：1=打印每个 slot 的 recv/send 详情（定位多客户端哪个连接卡住），
  * 实测稳定后可改 0 关闭以减少刷屏。 */
 #ifndef MODBUS_TCP_DIAG
 #define MODBUS_TCP_DIAG 1
 #endif
-
 /* 非阻塞 connect 超时：对端不回握手时超过此时长即放弃本次连接并重试，
  * 绝不阻塞主循环（原阻塞 connect 在目标不可达时会永久挂起 → IWDG 复位）。 */
 #ifndef MB_TCP_CONNECT_TIMEOUT_MS
 #define MB_TCP_CONNECT_TIMEOUT_MS  3000
 #endif
-
 #include "SEGGER_RTT_Log.h"
 #include <string.h>
-
 /* 本文件不 include 任何 lwip 头；网络栈调用全部经 t->driver->xxx 抽象接口，
  * 具体 netconn 实现在 modbus_tcp_adapter.c 中。 */
-
 // ===========================
 // MBAP 帧封装（纯字节操作，不依赖任何网络类型）
 // ===========================
-
 /* core 视角 PDU 恒为 [unit][func][data...]：
  *  - TX: pdu[0]=unit → MBAP 第 6 字节，pdu[1..]=func+data 顺延；
  *  - RX: 校验后把 MBAP 的 unit 支到 raw[0]，PDU 顺延，供 core 直接解析。
@@ -34,7 +27,6 @@ uint16_t tcp_frame_tx(void *ctx, const uint8_t *pdu, uint16_t pdu_len,
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     if (!t || !pdu || !out || pdu_len < 2 || pdu_len > MODBUS_BUF_SIZE) return 0;
     if (pdu_len + 6 > out_cap) return 0;
-
     uint16_t tid = t->is_server ? t->last_rx_tid : t->next_tx_tid++;
     out[0] = (tid >> 8) & 0xFF;
     out[1] = tid & 0xFF;
@@ -46,31 +38,25 @@ uint16_t tcp_frame_tx(void *ctx, const uint8_t *pdu, uint16_t pdu_len,
     memcpy(out + 7, pdu + 1, pdu_len - 1);
     return pdu_len + 6;
 }
-
 int tcp_frame_rx(void *ctx, uint8_t *raw, uint16_t *raw_len) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     if (!t || !raw || !raw_len || *raw_len < 8) return -1;
-
     uint16_t pid       = ((uint16_t)raw[2] << 8) | raw[3];
     uint16_t len_field = ((uint16_t)raw[4] << 8) | raw[5];
     if (pid != 0) return -1;
     if (len_field != *raw_len - 6) return -1;   /* length = unit(1) + PDU = 总长 - 6 */
-
     uint16_t rx_tid = ((uint16_t)raw[0] << 8) | raw[1];
     if (!t->is_server && rx_tid != t->next_tx_tid - 1) return -1;  /* 丢弃过期/错配响应 */
     t->last_rx_tid = rx_tid;                    /* server: 应答回显用 */
-
     /* 重排为 core 布局 [unit][func][data...] */
     raw[0] = raw[6];
     memmove(raw + 1, raw + 7, *raw_len - 7);
     *raw_len -= 6;
     return 0;
 }
-
 // ===========================
 // transport 回调（经 driver 抽象，不直接调 netconn）
 // ===========================
-
 static int tcp_send(void *ctx, const uint8_t *data, uint16_t len) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     if (!t || !t->is_connected || !t->conn || !t->driver) {
@@ -85,12 +71,10 @@ static int tcp_send(void *ctx, const uint8_t *data, uint16_t len) {
     }
     return 0;
 }
-
 static uint16_t tcp_peek(void *ctx) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     return t->ready_len;
 }
-
 static uint16_t tcp_recv(void *ctx, uint8_t *buf, uint16_t len) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     uint16_t n = (t->ready_len < len) ? t->ready_len : len;
@@ -100,11 +84,8 @@ static uint16_t tcp_recv(void *ctx, uint8_t *buf, uint16_t len) {
     }
     return n;
 }
-
 static uint32_t tcp_get_tick(void) { return MB_GET_TICK(); }
-
 static void tcp_delay(uint32_t ms) { MB_Delay_ms(ms); }
-
 /* 把 driver 收到的数据追加进 accum（溢出则整体丢弃重新同步） */
 static void tcp_accumulate(modbus_tcp_ctx_t *t, const uint8_t *data, uint16_t len) {
     if (t->accum_len + len <= sizeof(t->accum)) {
@@ -115,7 +96,6 @@ static void tcp_accumulate(modbus_tcp_ctx_t *t, const uint8_t *data, uint16_t le
         MODBUS_LOG("[TCP] accum overflow, resync");
     }
 }
-
 /* 从 accum 切出一帧完整帧到 ready（每轮询节拍最多一帧，core 消费后下次再切） */
 static void tcp_extract_frame(modbus_tcp_ctx_t *t) {
     if (t->ready_len != 0 || t->accum_len < 6) return;
@@ -132,7 +112,6 @@ static void tcp_extract_frame(modbus_tcp_ctx_t *t) {
     memmove(t->accum, t->accum + frame_total, t->accum_len - frame_total);
     t->accum_len -= frame_total;
 }
-
 /* ---- 连接断开的统一清理（client / slot 共用）---- */
 static void tcp_conn_closed(modbus_tcp_ctx_t *t, const char *reason) {
     MODBUS_LOG("[TCP] %s", reason ? reason : "connection closed");
@@ -149,11 +128,9 @@ static void tcp_conn_closed(modbus_tcp_ctx_t *t, const char *reason) {
     t->mb->reconnect_tick = tcp_get_tick();
     if (t->mb->on_line_break) t->mb->on_line_break(t->mb);
 }
-
 static void tcp_port_poll(void *ctx) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     uint32_t now = MB_GET_TICK();
-
     if (t->is_server) {
         /* ---- server（单连接模式）：非阻塞 accept ---- */
         if (!t->is_connected && t->listen_conn && t->driver) {
@@ -181,7 +158,6 @@ static void tcp_port_poll(void *ctx) {
                     t->mb->on_line_break(t->mb);
             }
             t->mb->reconnect_tick = now;   /* 压制 core 自动恢复 */
-
             if (t->connecting) {
                 /* 非阻塞 connect 进行中：轮询 driver 状态，全程不阻塞
                  * （原阻塞 connect 在目标不可达时会永久挂起 → IWDG 复位）。 */
@@ -213,7 +189,6 @@ static void tcp_port_poll(void *ctx) {
                 }
                 return;   /* 连接中/刚结束：本 tick 不做 recv */
             }
-
             /* 未发起连接 → 按 2s 间隔发起一次非阻塞 connect */
             if (now - t->reconnect_tick >= 2000) {
                 t->reconnect_tick = now;
@@ -227,9 +202,7 @@ static void tcp_port_poll(void *ctx) {
             return;
         }
     }
-
     if (!t->is_connected || !t->conn || !t->driver) return;
-
     /* ---- 非阻塞收包 ---- */
     uint8_t rbuf[MODBUS_BUF_SIZE + 8];
     uint16_t rlen = sizeof(rbuf);
@@ -240,10 +213,8 @@ static void tcp_port_poll(void *ctx) {
         tcp_conn_closed(t, "connection closed by peer");
         return;
     }
-
     tcp_extract_frame(t);
 }
-
 // ===========================
 // 多客户端 server：slot 轮询 / 空闲踢 / 初始化
 // ===========================
@@ -252,7 +223,6 @@ static void tcp_port_poll(void *ctx) {
 static void tcp_slot_port_poll(void *ctx) {
     modbus_tcp_ctx_t *t = (modbus_tcp_ctx_t*)ctx;
     if (!t->is_connected || !t->conn || !t->driver) return;
-
     uint8_t rbuf[MODBUS_BUF_SIZE + 8];
     uint16_t rlen = sizeof(rbuf);
     int r = t->driver->recv(t->conn, rbuf, &rlen);
@@ -270,10 +240,8 @@ static void tcp_slot_port_poll(void *ctx) {
         t->ready_len = 0;
         return;
     }
-
     tcp_extract_frame(t);
 }
-
 /* slot 的 on_line_break：空闲超时（check_line_status 从机分支）触发 → 关闭本 slot socket。
  * 真正释放 slot + 上下线通知在 modbus_tcp_server_process 循环里统一做。 */
 static void tcp_slot_line_break(modbus_t *ctx) {
@@ -283,7 +251,6 @@ static void tcp_slot_line_break(modbus_t *ctx) {
     }
     if (t) { t->conn = NULL; t->is_connected = 0; }
 }
-
 /* 轻量初始化一个 slot（不注册进全局实例表，避免 modbus_process_all 重复处理）。
  * 共享模板的 data_map 指针（不拷贝数据，符合多主站网关语义）。
  * drv 由 server 容器（适配器）传入。 */
@@ -305,7 +272,6 @@ void modbus_tcp_slot_init(modbus_tcp_client_slot_t *s, const modbus_t *tpl,
     mb->on_master_reg_change  = tpl->on_master_reg_change;
     mb->on_master_coil_change = tpl->on_master_coil_change;
     mb->on_line_break = tcp_slot_line_break;
-
     modbus_tcp_ctx_t *t = &s->tcp;
     memset(t, 0, sizeof(*t));
     t->mb = mb;
@@ -326,11 +292,9 @@ void modbus_tcp_slot_init(modbus_tcp_client_slot_t *s, const modbus_t *tpl,
     modbus_set_transport(mb, &tr);
     mb->last_activity_tick = tcp_get_tick();
 }
-
 // ===========================
 // transport 绑定（协议层入口，适配器调用）
 // ===========================
-
 void modbus_tcp_attach_transport(modbus_t *mb, modbus_tcp_ctx_t *t,
                                  const tcp_driver_t *drv) {
     t->driver = drv;   /* 注入 driver：协议层经此调用所有网络操作 */
@@ -351,15 +315,12 @@ void modbus_tcp_attach_transport(modbus_t *mb, modbus_tcp_ctx_t *t,
      * 防止 core 在首次请求前因 last_activity_tick=0 误判从机断线 */
     mb->last_activity_tick = tcp_get_tick();
 }
-
 // ===========================
 // 多客户端 server 容器驱动（协议层，经 driver 抽象 accept）
 // ===========================
-
 void modbus_tcp_server_process(modbus_tcp_server_t *srv) {
     if (!srv || !srv->listen_conn || !srv->driver) return;
     uint32_t now = MB_GET_TICK();
-
     /* 1. 批量 accept 所有挂起连接（nonblocking，直到无连接）。
      *    改为 while 循环：Modbus Poll 等工具常"同时"发起多连接，
      *    若每 tick 只 accept 一次，并发连接会积压甚至被丢弃（表现为第二个 client 超时）。 */
@@ -395,7 +356,6 @@ void modbus_tcp_server_process(modbus_tcp_server_t *srv) {
         ip[0] = '\0'; peer_port = 0;
         conn = srv->driver->server_accept(srv->listen_conn, ip, &peer_port);
     }
-
     /* 2. 逐 slot 处理；断开/空闲超时（on_line_break 已关 socket）则释放 + 通知 */
     for (int i = 0; i < MODBUS_TCP_MAX_CLIENTS; i++) {
         modbus_tcp_client_slot_t *s = &srv->slots[i];
@@ -410,5 +370,4 @@ void modbus_tcp_server_process(modbus_tcp_server_t *srv) {
         }
     }
 }
-
 #endif /* MODBUS_ENABLE_TCP */

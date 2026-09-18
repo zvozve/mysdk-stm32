@@ -624,14 +624,14 @@
       "version": "V1.0",
       "updated": "2026-09-17",
       "path": "devices/delta_dop_107",
-      "description": "Delta DOP-107 HMI 屏波形显示驱动（功能封装层，不做点位认领）：双通道同刻快照 + 100reg/帧分帧排队写出（DOP107_WaveFlush）、4 条水平参考线（每条 2 寄存器 {mv,mv}）、屏控制刷新/清除、反弹错误标记线圈。所有写出经 protocols.Modbus 的 modbus_master_*_async 入队由总线仲裁器调度。⚠ 用户配置头：HMI 寄存器地址来自工程提供的 hmi_modbus_addr.h（MB_REG_WAVE_A/B、MB_REG_LINE_*、MB_REG_HMI_CTRL、MB_COIL_ERR_MARK），与 board_cfg.h 同理由工程注入 include path；日志标签 HMI_LOG 可选由工程提供，缺省 #ifndef 退化到 DBG_LOG。由工程 Hardware/delta_dop_107 迁入。",
+      "description": "Delta DOP-107 HMI 屏波形显示驱动（功能封装层，不做点位认领）：双通道同刻快照 + 100reg/帧分帧排队写出（DOP107_WaveFlush）、4 条水平参考线（每条 2 寄存器 {mv,mv}）、屏控制刷新/清除、反弹错误标记线圈。所有写出经 protocols.modbus 的 modbus_master_*_async 入队由总线仲裁器调度。⚠ 用户配置头：HMI 寄存器地址来自工程提供的 hmi_modbus_addr.h（MB_REG_WAVE_A/B、MB_REG_LINE_*、MB_REG_HMI_CTRL、MB_COIL_ERR_MARK），与 board_cfg.h 同理由工程注入 include path；日志标签 HMI_LOG 可选由工程提供，缺省 #ifndef 退化到 DBG_LOG。由工程 Hardware/delta_dop_107 迁入。",
       "depends": [
-        "protocols.Modbus",
+        "protocols.modbus",
         "chip.oop_dwt",
         "middleware.SEGGER_RTT"
       ],
       "backends": [
-        "protocols.Modbus"
+        "protocols.modbus"
       ],
       "files": [
         "devices/delta_dop_107/Inc/delta_dop_107.h",
@@ -857,13 +857,13 @@
       ]
     },
     {
-      "id": "protocols.Modbus",
-      "name": "Modbus",
+      "id": "protocols.modbus",
+      "name": "modbus",
       "layer": "protocols",
       "category": "net",
       "version": null,
-      "path": "protocols/Modbus",
-      "description": "Modbus 协议栈（RTU 主/从 + TCP 主/从），纯协议层、板无关：UART 侧经 modbus_uart_adapter 注入 chip.oop_uart，TCP 侧只处理 MBAP 帧与传输回调，不直接依赖 lwip。",
+      "path": "protocols/modbus",
+      "description": "modbus 协议栈（RTU 主/从 + TCP 主/从），纯协议层、板无关：UART 侧经 modbus_uart_adapter 注入 chip.oop_uart，TCP 侧只处理 MBAP 帧与传输回调，不直接依赖 lwip。",
       "depends": [
         "chip.oop_uart",
         "chip.oop_dwt",
@@ -874,20 +874,20 @@
         "net"
       ],
       "files": [
-        "protocols/Modbus/Inc/modbus_core.h",
-        "protocols/Modbus/Inc/modbus_master.h",
-        "protocols/Modbus/Inc/modbus_rtu.h",
-        "protocols/Modbus/Inc/modbus_slave.h",
-        "protocols/Modbus/Inc/modbus_tcp.h",
-        "protocols/Modbus/Inc/modbus_tcp_adapter.h",
-        "protocols/Modbus/Inc/modbus_uart_adapter.h",
-        "protocols/Modbus/Src/modbus_core.c",
-        "protocols/Modbus/Src/modbus_master.c",
-        "protocols/Modbus/Src/modbus_rtu.c",
-        "protocols/Modbus/Src/modbus_slave.c",
-        "protocols/Modbus/Src/modbus_tcp.c",
-        "protocols/Modbus/Src/modbus_tcp_adapter.c",
-        "protocols/Modbus/Src/modbus_uart_adapter.c"
+        "protocols/modbus/Inc/modbus_core.h",
+        "protocols/modbus/Inc/modbus_master.h",
+        "protocols/modbus/Inc/modbus_rtu.h",
+        "protocols/modbus/Inc/modbus_slave.h",
+        "protocols/modbus/Inc/modbus_tcp.h",
+        "protocols/modbus/Inc/modbus_tcp_adapter.h",
+        "protocols/modbus/Inc/modbus_uart_adapter.h",
+        "protocols/modbus/Src/modbus_core.c",
+        "protocols/modbus/Src/modbus_master.c",
+        "protocols/modbus/Src/modbus_rtu.c",
+        "protocols/modbus/Src/modbus_slave.c",
+        "protocols/modbus/Src/modbus_tcp.c",
+        "protocols/modbus/Src/modbus_tcp_adapter.c",
+        "protocols/modbus/Src/modbus_uart_adapter.c"
       ]
     },
     {
@@ -1097,11 +1097,11 @@
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
     "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。",
-    "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_receiver/ir_transmitter/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
+    "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_receiver/ir_transmitter/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
     "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
     "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。",
     "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。",
-    "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，Modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。",
+    "★ 2026-09-17 业务设备入库与去冗余（v0.4.0 续）：新增 devices.elecMgt（core 生成引擎 + step 参数→帧 + pid 预留；bsp_dwt→chip.oop_dwt；TIM/DMA 句柄改 EM_Init(mode,&em_hw_t) 注入，移除工程全局句柄 extern）与 devices.delta_dop_107（HMI 波形/参考线/控制封装，modbus 异步队列；HMI 地址保留用户配置头 hmi_modbus_addr.h，HMI_LOG 加 #ifndef 守卫缺省退化 DBG_LOG）；删除 devices.sigout（过度封装，6 路 GPIO + 脉冲状态机内联回工程 task_waveform）。",
     "★ 2026-09-17 分层修正（用户指出 chip=STM32 仅）：chip.mcp42010 → devices.mcp42010（外部 SPI 电位器，非片上外设；SPI 改走新建 chip.oop_spi，CS 走 oop_gpio，device 层彻底去 HAL 直调）；chip.hbridge → devices.hbridge（外部 H 桥电路，坐 oop_tim/oop_dma 之上）。新增 chip.oop_spi（HAL_SPI_* 唯一入口，对齐 oop_i2c/oop_uart）。devices.elecMgt 的 depends 由 chip.hbridge 改为 devices.hbridge。",
     "★ 2026-09-17 入库整理（mcu_hw_1_4 Old/Hardware 迁移）：新增 devices.ch374u（CH374 SPI USB Host 控制器）、devices.ds1302（3 线 RTC）、devices.usb_host（USBH HID 应用适配层）、并补登此前漏登的 devices.ch9434；chip.oop_spi 由单例改为多实例（oop_spi_dev_t，hspi2/hspi3 可并存）。bsp_dwt → chip.oop_dwt、uart_port → chip.oop_uart、heart_beat/lan8720a 沿用既有 SDK 模块，GPIO 引脚表归工程 board_cfg + Tasks，均不入 SDK。CubeMX 生成文件（usbh_conf.c / usbh_platform.c / usb_host.c 等）一律不进 SDK，其手工修复记录在 library/devices/usb_host/readme.md 与 library/devices/ch374u/readme.md。",
     "★ 2026-09-17 修正（SDK 收纳边界）：SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不引入 CubeMX 生成的厂商库。故撤除 middleware.usbh（ST USB Host Library 是 CubeMX 的 Middlewares 组件，工程侧已由 CubeMX 生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号）；devices.usb_host 的依赖改为 external:usbh —— 声明「由宿主工程提供」，与 protocols.wol 的 external:lwip 同构，只保留应用适配层。usbh_core.c 的「跳过 SET_WAKEUP_FEATURE」修复属 CubeMX 生成文件的手工修复，须保留在工程侧 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c，不在 SDK 内。另：移除时发现本机 git rm -r <dir> 会连带删除同层其它工作区文件，改目录请走文件系统删除 + git add -A。",
