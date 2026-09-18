@@ -51,9 +51,9 @@ void OLED_Refresh(void);
 void OLED_RefreshDiff(void);
 
 void OLED_SetPos(unsigned char x, unsigned char y);
-void OLED_ShowStr(unsigned char x, unsigned char y, unsigned char ch[], unsigned char TextSize);
-void OLED_ShowCN(unsigned char x, unsigned char y, unsigned char N);
-void OLED_DrawBMP(unsigned char x0, unsigned char y0, unsigned char x1, unsigned char y1, unsigned char BMP[]);
+
+/* 文本 / 中文 / 位图渲染属应用层（依赖项目字模 codetab/font），不入驱动层；
+   应用层用本驱动 OLED_Address() + I2C_LCD_WriteDat() + 自有字模即可实现。 */
 
 void OLED_12832_Init(void);
 void OLED_12864_Init(void);

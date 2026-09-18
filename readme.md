@@ -25,7 +25,7 @@ mystm32-sdk/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
 │   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
-│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/
+│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/ oled12864/ led_matrix/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ mqtt/ wol/
 │   └── middleware/   # 第三方调试/传输库

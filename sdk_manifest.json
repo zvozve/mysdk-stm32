@@ -469,6 +469,27 @@
       ]
     },
     {
+      "id": "devices.led_matrix",
+      "name": "led_matrix",
+      "layer": "devices",
+      "category": "display",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "devices/led_matrix",
+      "description": "64x64 RGB LED 点阵屏驱动（ICN2027 列驱动 + TC7258 行译码 + SM245 OE），坐 chip.oop_gpio / oop_dwt 之上；控制引脚由 LED_Matrix_Init() 注入。自带字模注册 + 文本/位图渲染，用户填字模即开箱用。",
+      "depends": [
+        "chip.oop_gpio",
+        "chip.oop_dwt"
+      ],
+      "backends": [
+        "chip.oop_gpio"
+      ],
+      "files": [
+        "devices/led_matrix/Inc/led_matrix.h",
+        "devices/led_matrix/Src/led_matrix.c"
+      ]
+    },
+    {
       "id": "devices.key",
       "name": "key",
       "layer": "devices",
