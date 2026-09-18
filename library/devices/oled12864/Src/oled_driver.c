@@ -279,6 +279,99 @@ void OLED_RefreshDiff(void) {
 * @param  无
 * @retval 无
 */
+/* ---------- 字模注册 + 文本/位图渲染（自包含） ---------- */
+#define OLED_FONT_MAX   8
+
+static const oled_font_t *g_oled_fonts[OLED_FONT_MAX] = {0};
+
+void OLED_RegisterFont(uint8_t id, const oled_font_t *font) {
+    if (id < OLED_FONT_MAX) g_oled_fonts[id] = font;
+}
+
+void OLED_SetPixel(int x, int y, uint8_t on) {
+    if (x < 0 || x >= OLED_COLUMN_MAX || y < 0 || y >= (OLED_PAGE_MAX * 8)) return;
+    uint8_t page = (uint8_t)(y / 8);
+    uint8_t bit  = (uint8_t)(y % 8);
+    if (on) oled_page_buf[page][x] |= (uint8_t)(1u << bit);
+    else    oled_page_buf[page][x] &= (uint8_t)(~(1u << bit));
+}
+
+/* 单字渲染：依据字模描述符逐点描到 oled_page_buf（MSB-first，逐行） */
+static void oled_draw_glyph(int x, int y, const uint8_t *glyph,
+                            uint8_t cell_w, uint8_t cell_h, uint8_t bytes_per_row,
+                            uint8_t inverse) {
+    for (uint8_t row = 0; row < cell_h; row++) {
+        const uint8_t *row_bytes = glyph + (uint32_t)row * bytes_per_row;
+        for (uint8_t col = 0; col < cell_w; col++) {
+            uint8_t b = row_bytes[col >> 3];
+            uint8_t bit = (uint8_t)((b >> (7 - (col & 7))) & 0x01);
+            if (inverse) bit ^= 1;
+            if (bit) OLED_SetPixel(x + col, y + row, 1);
+        }
+    }
+}
+
+static uint32_t oled_font_offset(const oled_font_t *f, char c) {
+    if (c < (char)f->first || c > (char)f->last) return 0xFFFFFFFF;
+    return (uint32_t)(c - (char)f->first) * f->cell_h * f->bytes_per_row;
+}
+
+void OLED_DrawChar(int x, int y, char c, uint8_t font_id, uint8_t inverse) {
+    if (font_id >= OLED_FONT_MAX) return;
+    const oled_font_t *f = g_oled_fonts[font_id];
+    if (!f) return;
+    uint32_t off = oled_font_offset(f, c);
+    if (off == 0xFFFFFFFF) return;
+    oled_draw_glyph(x, y, f->table + off, f->cell_w, f->cell_h, f->bytes_per_row, inverse);
+}
+
+void OLED_DrawString(int x, int y, const char *s, uint8_t font_id, uint8_t inverse) {
+    if (!s || font_id >= OLED_FONT_MAX) return;
+    const oled_font_t *f = g_oled_fonts[font_id];
+    if (!f) return;
+    int cx = x;
+    if (f->enc == OLED_FONT_ASCII) {
+        for (const char *p = s; *p; p++) {
+            if (*p == '\n') { cx = x; y += f->cell_h; continue; }
+            uint32_t off = oled_font_offset(f, *p);
+            if (off != 0xFFFFFFFF)
+                oled_draw_glyph(cx, y, f->table + off, f->cell_w, f->cell_h, f->bytes_per_row, inverse);
+            cx += f->cell_w;
+        }
+    } else { /* GBK：双字节（兼容半角 ASCII 混合） */
+        const uint8_t *p = (const uint8_t *)s;
+        for (; *p; ) {
+            uint8_t hi = p[0];
+            if (hi >= 0x81 && hi <= 0xFE && p[1]) {
+                uint8_t lo = p[1];
+                uint32_t off = f->offset_of ? f->offset_of(hi, lo) : 0xFFFFFFFF;
+                if (off != 0xFFFFFFFF)
+                    oled_draw_glyph(cx, y, f->table + off, f->cell_w, f->cell_h, f->bytes_per_row, inverse);
+                cx += f->cell_w; p += 2;
+            } else {
+                uint32_t off = oled_font_offset(f, (char)hi);
+                if (off != 0xFFFFFFFF)
+                    oled_draw_glyph(cx, y, f->table + off, f->cell_w, f->cell_h, f->bytes_per_row, inverse);
+                cx += f->cell_w; p += 1;
+            }
+        }
+    }
+}
+
+void OLED_DrawBitmap(int x, int y, int w, int h, const uint8_t *bmp, uint8_t inverse) {
+    if (!bmp) return;
+    uint8_t bpr = (uint8_t)((w + 7) / 8);
+    for (int row = 0; row < h; row++) {
+        const uint8_t *row_bytes = bmp + (uint32_t)row * bpr;
+        for (int col = 0; col < w; col++) {
+            uint8_t b = row_bytes[col >> 3];
+            uint8_t bit = (uint8_t)((b >> (7 - (col & 7))) & 0x01);
+            if (inverse) bit ^= 1;
+            if (bit) OLED_SetPixel(x + col, y + row, 1);
+        }
+    }
+}
+
 void OLED_I2C_Init(GPIO_TypeDef* scl_port, uint16_t scl_pin,
                    GPIO_TypeDef* sda_port, uint16_t sda_pin, uint32_t delay_us) {
     oop_i2c_init(&g_oled_i2c, scl_port, scl_pin, sda_port, sda_pin, delay_us);

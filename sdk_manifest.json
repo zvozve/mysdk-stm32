@@ -451,10 +451,10 @@
       "name": "oled12864",
       "layer": "devices",
       "category": "display",
-      "version": "V1.0",
-      "updated": "2026-08-29",
+      "version": "V1.1",
+      "updated": "2026-09-18",
       "path": "devices/oled12864",
-      "description": "SSD1306 0.96\" OLED 驱动（仅驱动层 oled_driver，UI/func 应用层不入 SDK），坐 chip.oop_i2c 软总线之上；引脚由调用方注入。取代旧 bsp_i2c 依赖的 Hardware/OLED12864。",
+      "description": "SSD1306 0.96\" OLED 驱动（坐 chip.oop_i2c 软总线；引脚由调用方注入）。V1.1 新增自包含字模注册（oled_font_t + OLED_RegisterFont）与文本/位图渲染（OLED_DrawChar/DrawString/DrawBitmap），字模由用户按格式注入，驱动不内置任何字库。取代旧 bsp_i2c 依赖的 Hardware/OLED12864。",
       "depends": [
         "chip.oop_i2c",
         "chip.oop_dwt",

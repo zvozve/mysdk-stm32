@@ -1,8 +1,8 @@
 /**
  * @file    oled_driver.h
- * @brief   SSD1306 OLED（128x64，I2C）显示驱动（仅驱动层；UI 见 oled_func/oled_ui，不入库）
- * @version V1.0
- * @date    2026-08-29
+ * @brief   SSD1306 OLED（128x64，I2C）显示驱动，含自包含字模注册 + 文本/位图渲染
+ * @version V1.1
+ * @date    2026-09-18
  *
  * @note    板无关：I2C 引脚由 OLED_I2C_Init() 注入，不引用任何 CubeMX 符号。
  *          调用顺序：先 OLED_I2C_Init() 绑定引脚，再 OLED_12832_Init()/OLED_12864_Init() 初始化显示。
@@ -52,8 +52,23 @@ void OLED_RefreshDiff(void);
 
 void OLED_SetPos(unsigned char x, unsigned char y);
 
-/* 文本 / 中文 / 位图渲染属应用层（依赖项目字模 codetab/font），不入驱动层；
-   应用层用本驱动 OLED_Address() + I2C_LCD_WriteDat() + 自有字模即可实现。 */
+/* ---------- 字模注册 + 文本/位图渲染（自包含，不依赖外部 gfx 层） ---------- */
+typedef enum { OLED_FONT_ASCII = 0, OLED_FONT_GBK } oled_font_enc_t;
+
+typedef struct {
+    const uint8_t *table;       /* 字模首地址（asc2_1608 / zhcn_2020 ...） */
+    uint8_t  cell_w, cell_h;    /* 单字宽高（"字符大小"由这里定义，不写死函数名） */
+    uint8_t  bytes_per_row;     /* 每行字节数 = ceil(cell_w/8) */
+    uint8_t  first, last;       /* 首/末字符编码（ASCII） */
+    oled_font_enc_t enc;        /* ASCII / GBK */
+    uint32_t (*offset_of)(uint8_t hi, uint8_t lo); /* GBK 查表（可选） */
+} oled_font_t;
+
+void OLED_SetPixel(int x, int y, uint8_t on);                 /* 写 oled_page_buf 像素位 */
+void OLED_RegisterFont(uint8_t id, const oled_font_t *font);  /* 注入用户字模 */
+void OLED_DrawChar(int x, int y, char c, uint8_t font_id, uint8_t inverse);
+void OLED_DrawString(int x, int y, const char *s, uint8_t font_id, uint8_t inverse);
+void OLED_DrawBitmap(int x, int y, int w, int h, const uint8_t *bmp, uint8_t inverse);
 
 void OLED_12832_Init(void);
 void OLED_12864_Init(void);

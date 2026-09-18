@@ -138,6 +138,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **`external:lwip` 不进 SDK**：`protocols.wol` 依赖 lwIP，属 CubeMX Middlewares，工程侧提供。
 - **LwIP 自带 mqtt 冲突**：需 EXCLUDE 掉 `LwIP/apps/mqtt/mqtt.c`，避免与 `protocols.mqtt` 同名符号冲突。
 - **LwIP 接入完整避坑清单（CubeMX DNS / RTOS 任务栈 512×4 / MicroLIB / PHY 9 脚电源 / 晶振 / LED 检查）**：见 `library/devices/lan8720a/readme.md`。
+- **OLED 驱动（oled12864）文本/字模用法**：字模由用户按 `oled_font_t` 注入 + `OLED_RegisterFont` 注册，再 `OLED_DrawString` 显示；驱动不内置字库，详见 `library/devices/oled12864/readme.md`。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
