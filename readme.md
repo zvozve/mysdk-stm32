@@ -30,11 +30,13 @@ mystm32-sdk/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ cli/ mqtt/ wol/
 │   ├── services/     # 系统服务（板无关，同 devices/protocols 禁止直调 HAL）
+│   │   ├── ota_core/ ota_src_mem/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
 │   ├── sync_lib.py   # 子集拉取（SDK 维护）
 │   ├── oop_audit.py  # HAL 泄漏检查（SDK 维护）
+│   ├── ota_pack.py   # OTA 固件打包 bin -> .otapkg（工程面向；经 sdk_run.py pack 调用）
 │   ├── flash.bat     # J-Link 烧录（工程面向）
 │   └── trans_gbk2utf-8.py  # GBK→UTF-8（工程面向）
 ├── manual/           # 手动拷贝的脚手架（不自动拉取）
@@ -163,6 +165,33 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+
+### 新增 services.ota_core + services.ota_src_mem + tools/ota_pack.py（2026-09-18，v0.9.0）
+
+OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
+
+- **新增 `services.ota_core`（V1.0）**：BL 与 APP 的**共同底座** —— 分区表 schema 与目标区选择、
+  状态区双份乒乓读写、`.otapkg` 80 字节包头解析与校验器接口、介质抽象、非阻塞步进式流程骨架。
+  三个关键设计：
+  1. **「A/B 切换」与「单槽 + 暂存搬运」不是两套代码** —— 差异只在「RUN 区有几条」（分区表数据）
+     与「`pending_action` 取什么值」（状态区一个字段）；于是 APP 侧两种拓扑完全共用，
+     BL 侧只在 `boot_activate` 里分两个分支。这就是「兼容 + 可选」的落地点。
+  2. **第 2 关（内存累计 CRC）与第 3 关（读回 Flash 重算 CRC）分开做**。
+     增量 CRC 只证明「收到的报文对」，读回 CRC 才证明「落到 Flash 的字节对」——最易漏的设计点。
+  3. **非阻塞步进式流程**：每个 `ota_flow_step()` 只读一块 / 擦一个擦除单位 / 校验一块，
+     448 KB 的长擦除被切成多步，步与步之间应用能喂狗、刷进度、响应取消；
+     比「一次长阻塞 + 异步状态机」两条路都简单。
+  另外：搬运缓冲由调用方提供（不动态分配）；介质偏移而非 CPU 地址（外挂 Flash 不在地址空间）；
+  `ota_cfg_init()` 会校验「CFG 半区是擦除单位整数倍」，否则擦第二份会连带擦掉第一份。
+- **新增 `services.ota_src_mem`（V1.0）**：内存取数后端。让 OTA 逻辑在没有任何传输协议栈时
+  就能跑通「写 → 双重校验 → 提交」，避免后面把 YMODEM 的问题和 OTA 逻辑的问题混在一起查。
+  `seekable=1/0` 分别覆盖 HTTP/TF 卡（可跳段）与串口流式（不可回退）两条分支。
+- **新增 `tools/ota_pack.py`**：bin → `.otapkg`（双段包 / 单段包、`zlib.crc32`、版本注入），
+  **产物写完会自己重新打开复算 CRC**；`--list` 可查看并校验已有包。
+  `manual/sdk_run.py` 加 `pack` 子命令桥接，工程侧 `python sdk_run.py pack ...` 即可用。
+- 验证：8 个源文件在 F4 下 `-Wall -Wextra -Wpedantic` **零警告**；
+  `ota_pack.py` 打包往返 **22 项头部字节布局核对全过**（含段数据 4 字节对齐填充）。
+- 待建：`services.bootloader`（P2）、`protocols.ymodem` + `services.ota` + `services.ota_src_uart`（P3）。
 
 ### 新增 services 层 + 两个 flash 模块（2026-09-18，v0.8.0）
 

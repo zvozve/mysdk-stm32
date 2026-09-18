@@ -11,6 +11,7 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
     python sdk_run.py pull
     python sdk_run.py audit
     python sdk_run.py trans <file> [...]
+    python sdk_run.py pack --slot-a A.bin --slot-b B.bin --ver 1.2.3 -o dist/app.otapkg
 
 说明: 本文件是「接口」不是「工具副本」——它不含任何 SDK 逻辑，只做
 「读配置 -> 调 SDK 工具」。工程从 SDK manual/ 拷贝到工程根即可。
@@ -67,6 +68,12 @@ def main() -> int:
     if task == "trans":
         script = os.path.join(tool_dir, "trans_gbk2utf-8.py")
         print("[sdk_run] trans ->", script, rest)
+        return subprocess.run([sys.executable, script, *rest]).returncode
+
+    if task == "pack":
+        # OTA 固件打包（bin -> .otapkg）；产物路径由调用方用 -o 指定
+        script = os.path.join(tool_dir, "ota_pack.py")
+        print("[sdk_run] pack ->", script)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
     sys.exit("[sdk_run] 未知任务: %s" % task)
