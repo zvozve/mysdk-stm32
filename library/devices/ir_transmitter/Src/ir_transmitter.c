@@ -13,6 +13,9 @@
 /* 时基 ARR：16/32 位定时器通吃的满量程（模数 = 65536） */
 #define IR_TRANSMITTER_TICK_PERIOD      0xFFFFUL
 
+/* 载波周期上限：16 位定时器能装下的最大 ARR+1 */
+#define IR_TRANSMITTER_MAX_PERIOD       0x10000UL
+
 /* 死机保护：连续读到同一个计数值超过此次数，判定时基冻结。
    1MHz 计数下该值不可能停留这么久（>1us 就会变），故不会误判；
    同时把「时基假死」的挂死时间限制在毫秒级，绝不拖死主循环。 */
@@ -99,7 +102,7 @@ static bool ir_transmitter_calc_carrier(uint32_t tim_clk_hz, uint32_t carrier_hz
 
     /* 载波周期（计数值），四舍五入到最近的整数分频 */
     uint32_t period = (tim_clk_hz + (carrier_hz / 2U)) / carrier_hz;
-    if ((period < 2U) || (period > (IR_TRANSMITTER_TICK_PERIOD + 1UL))) {
+    if ((period < 2U) || (period > IR_TRANSMITTER_MAX_PERIOD)) {
         return false;   /* 定时器装不下，需先用 PSC 降频 */
     }
 
