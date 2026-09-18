@@ -41,9 +41,22 @@ static int io_read_byte(void *ctx, uint8_t *b)
     for (;;) {
         if (u->rx_pkt != NULL && u->rx_off < u->rx_len) {
             *b = u->rx_pkt[u->rx_off++];
+
+            /* ★ 取完最后一个字节就**立刻**解锁，不能留到下一次调用。
+             *   原因：ymodem 收满一帧后会马上回 ACK，而 `uart_drv_send()` 在
+             *   「state == DATA_READY 且 locked」时直接返回 -3 拒绝发送 ——
+             *   锁着不放，ACK 就永远发不出去，对端只能一遍遍超时重传直到放弃。
+             *   解锁顺带触发驱动的 start_rx()，把 RX DMA 重新武装上。 */
+            if (u->rx_off >= u->rx_len) {
+                uart_drv_release_packet(u->uart);
+                u->rx_pkt = (uint8_t *)0;
+                u->rx_len = 0u;
+                u->rx_off = 0u;
+            }
             return 1;
         }
-        if (u->rx_pkt != NULL) {                  /* 上一包读完，解锁 */
+
+        if (u->rx_pkt != NULL) {                  /* 兜底：不该发生，但要能自愈 */
             uart_drv_release_packet(u->uart);
             u->rx_pkt = (uint8_t *)0;
             u->rx_len = 0u;
@@ -62,6 +75,16 @@ static int io_read_byte(void *ctx, uint8_t *b)
     }
 }
 
+/**
+ * @brief 写一段（发 'C' / ACK / NAK）
+ * @note  `uart_drv_send()` 的返回码：`0` 成功、`-1` 参数错、`-2` TX_BUSY、
+ *        `-3` 有未取走的收包且已锁定、`-4` HAL 启动失败。
+ *        `-2` 理论上会出现（上一个响应还在发），但 ACK/NAK 只有 1 字节
+ *        （115200 下 ~87 µs），而两次响应之间隔着「收一帧」的时间（毫秒级），
+ *        所以实际概率极低。真碰上也不致命 —— ymodem 层忽略写返回值，
+ *        对端会超时重传，只是慢一个周期。因此**不在这里加阻塞重试**。
+ *        `-3` 在修好 io_read_byte 的即时解锁后不应再出现。
+ */
 static int io_write(void *ctx, const uint8_t *buf, uint32_t len)
 {
     ota_src_uart_t *u = (ota_src_uart_t *)ctx;
