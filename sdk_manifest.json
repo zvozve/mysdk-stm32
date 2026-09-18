@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -931,6 +931,59 @@
         "devices/spi_nor_flash/Inc/spi_nor_flash.h",
         "devices/spi_nor_flash/Src/spi_nor_flash.c"
       ]
+    },
+    {
+      "id": "services.ota_core",
+      "name": "ota_core",
+      "layer": "services",
+      "category": "ota",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "services/ota_core",
+      "description": "OTA 共用底座（BL 与 APP 共用）：分区表 schema + 目标区选择、状态区双份乒乓读写、.otapkg 包头解析与校验器接口、介质抽象、非阻塞步进式流程骨架。核心设计：「A/B 切换」与「单槽+暂存搬运」不是两套代码 —— 差异只在「RUN 有几条」（分区表数据）与「pending_action 取什么值」（状态区一个字段）；APP 侧两种拓扑完全共用。带 5 道校验关（逐包 / 内存累计 CRC / 读回 Flash 重算 CRC / CFG 乒乓提交 / BL 跳转前复算），其中「收到的对」与「落盘的对」分开做（第 2 关 vs 第 3 关）是最易漏的设计点。CRC-32/ISO-HDLC 参数写死（= zlib.crc32）。抬负缓冲由调用方提供，不动态分配。",
+      "depends": [
+        "chip.oop_flash",
+        "chip.platform"
+      ],
+      "backends": [
+        "chip.oop_flash"
+      ],
+      "files": [
+        "services/ota_core/Inc/ota_common.h",
+        "services/ota_core/Inc/ota_crc32.h",
+        "services/ota_core/Inc/ota_flash.h",
+        "services/ota_core/Inc/ota_area.h",
+        "services/ota_core/Inc/ota_cfg.h",
+        "services/ota_core/Inc/ota_image.h",
+        "services/ota_core/Inc/ota_source.h",
+        "services/ota_core/Inc/ota_flow.h",
+        "services/ota_core/Inc/ota_core.h",
+        "services/ota_core/Src/ota_crc32.c",
+        "services/ota_core/Src/ota_flash.c",
+        "services/ota_core/Src/ota_area.c",
+        "services/ota_core/Src/ota_cfg.c",
+        "services/ota_core/Src/ota_image.c",
+        "services/ota_core/Src/ota_flow.c",
+        "services/ota_core/Src/ota_core.c"
+      ]
+    },
+    {
+      "id": "services.ota_src_mem",
+      "name": "ota_src_mem",
+      "layer": "services",
+      "category": "ota",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "services/ota_src_mem",
+      "description": "取数后端：内存/RAM（ota_source_t 实现，零依赖）。用一块内存冒充 .otapkg，让 OTA 逻辑在没有任何传输协议栈时就能跑通「写 → 双重校验 → 提交」全链路，避免后面把 YMODEM 的问题和 OTA 逻辑的问题混在一起查。seekable=1 模拟 HTTP/TF 卡（可跳段），seekable=0 模拟串口流式（不可回退，只能顺序丢弃）—— 两种都跑一遍，流程分支才算验过。",
+      "depends": [
+        "services.ota_core"
+      ],
+      "backends": [],
+      "files": [
+        "services/ota_src_mem/Inc/ota_src_mem.h",
+        "services/ota_src_mem/Src/ota_src_mem.c"
+      ]
     }
   ],
   "notes": [
@@ -952,6 +1005,7 @@
     "★ 2026-09-18 改名（去芯片名 / 补全长名）：devices.ir_1838b → devices.ir_receiver（1838B 只是解调输出型接收头的一个型号，模块不绑定芯片），devices.ir_tx → devices.ir_transmitter（tx 过短且与 receiver 不成对）。符号同步：IR1838B_* → IR_Receiver_*、IR_TX_* → IR_Transmitter_*、ir_tx_cfg_t → ir_transmitter_cfg_t；文件/守卫/全库引用（manual 的 sdk.toml 与 board_cfg 模板、sync_lib.py、oop_tim 与 ac_codec 注释）一并更新。同时修正 ir_receiver 描述——原写「基于定时器输入捕获」与实现不符，实为 GPIO 双沿中断 + DWT 打时间戳。",
     "★ 2026-09-18 IR 收发改为工程侧稳定方案（输入捕获 + CCR 门控），模块升 V2.0：ir_receiver 由「GPIO EXTI + DWT 打时间戳 + 1ms TIM 收尾」改为 TIM 输入捕获（硬件锁存，零抖动；F1 无硬件双沿故在 ISR 内翻转 CCxP 软件模拟；时间差按 ARR+1 环形减法补偿 16 位回绕；200us 去抖滤 AGC 饱和毛刺；帧结束由 process() 轮询判定），并去掉不可达的 TIMEOUT/mute 路径。ir_transmitter 由「DWT 微秒延时 + 每段 Start/Stop PWM」改为「载波常开 + CCR 门控」（OCxPE=0 时单次寄存器写即生效，避免最坏一个载波周期的抖动）+ µs 时基改用注入的自由运行 TIM（工程实测部分 F1 板 DWT CYCCNT 不可靠：自检偶发通过、发码时冻结），并加时基冻结死机保护 + init 探测。两模块依赖收敛为 chip.platform + chip.oop_tim（不再用 oop_gpio/oop_dwt/SEGGER_RTT），公开 API 由全局单例改为多实例 init/start/stop/process/send。另：chip.platform 补上 STM32F1 分支（此前只有 F4/G4，F103 工程无法编译）；chip.oop_tim 的 depends 补上 chip.oop_dma（oop_tim_drv.c 直连 oop_dma_drv.h，此前漏声明导致按依赖闭包拉取时会缺文件）。",
     "★ 2026-09-18 新增 protocols.cli（V1.0）：串口命令行核心。来源是 ir-demo-stm32 工程的 User/Src/uart_cli.c——那份代码里硬编码了 6 条命令的 if-else 链，但真正难得的是防回显自激的四道闸（它们是在真实链路上逐条踩出来的：一次 poll 只执行一条 / 执行后 flush RX / 同名命令去抖窗口 / 未知行静默丢弃只限速上报，否则报错被回显再解析会自激刷屏）。故把「命令表 + 行解析 + 四道门」抽成模块，业务模块自带 xxx_cli_cmds[]，app 侧只做聚合注册。与旧实现的此意图差异：参数改用空白分隔（txcar 38000，旧实现把空白全删成 TXCAR38000，且 T X 会命中 TX）；仅命令名大小写不敏感、参数原样保留（避免将来 wifi <SSID> 这类参数被转大写）；数字解析加溢出检查。依赖仅 chip.oop_dwt（去抖/限速的时基），不碰 HAL。首批用户回灌验证：ir-demo-stm32 的 6 条命令（status/txpol/txcar/txn/txmod/tx）。",
-    "★ 2026-09-18 新增 services 层与两个 flash 模块（v0.8.0）：chip.oop_flash（内部 Flash，HAL_FLASH_* 唯一入口；F1/F4/G4 三系列几何内置，三系列各编过零警告；双 Bank F4 编译期 #error，G4 未上板验证）+ devices.spi_nor_flash（通用 SPI NOR，坐 oop_spi/oop_gpio/oop_dwt，阻塞单位操作 + idle_cb 喂狗）。tools/oop_audit.py 的扫描范围加入 library/services（新层同样禁止直调 HAL）。同时为 OTA 方案铺路：services.ota_core / services.bootloader / services.ota / protocols.ymodem 待建，清单见 todo.md；方案文档在 ota-demo-stm32/doc/01~06。"
+    "★ 2026-09-18 新增 services 层与两个 flash 模块（v0.8.0）：chip.oop_flash（内部 Flash，HAL_FLASH_* 唯一入口；F1/F4/G4 三系列几何内置，三系列各编过零警告；双 Bank F4 编译期 #error，G4 未上板验证）+ devices.spi_nor_flash（通用 SPI NOR，坐 oop_spi/oop_gpio/oop_dwt，阻塞单位操作 + idle_cb 喂狗）。tools/oop_audit.py 的扫描范围加入 library/services（新层同样禁止直调 HAL）。同时为 OTA 方案铺路：services.ota_core / services.bootloader / services.ota / protocols.ymodem 待建，清单见 todo.md；方案文档在 ota-demo-stm32/doc/01~06。",
+    "★ 2026-09-18 新增 services.ota_core + services.ota_src_mem（v0.9.0，P1）：OTA 共用底座与内存取数后端。底座含 ota_common/crc32/flash/area/cfg/image/source/flow/core 九个头；中心设计是「A/B 切换与单槽搬运合一」（分区表 RUN 数量 + pending_action 字段）、「非阻塞步进式流程」（每步一块 / 一个擦除单位，便于喂狗与取消）、「第 2 关（内存 CRC）与第 3 关（读回 CRC）分开」。同时新增 tools/ota_pack.py（bin -> .otapkg，含产物自校验），manual/sdk_run.py 加 pack 子命令。验证：8 个源文件在 F4 下 -Wall -Wextra -Wpedantic 零警告；ota_pack 打包往返 22 项头部字节布局核对全过（含 4 字节对齐填充）。待建：services.bootloader（P2）、protocols.ymodem + services.ota + services.ota_src_uart（P3）。"
   ]
 }
