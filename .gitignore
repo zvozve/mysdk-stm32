@@ -1,3 +1,70 @@
+# mystm32-sdk 仓库自身的忽略项
+# 取舍原则：只忽略「可再生成的产物」与「本机/个人工具态」。
+# 工程侧「拷进工程即生效」的默认模板见 manual/.gitignore（内容与本文大体一致，另含反面清单）。
+# 坑：gitignore 不支持行尾注释——`#` 出现在模式后面会被当成模式本身，规则静默失效。
+
+# ── 本机 / 个人工具态（别人机器上没有，且会互相覆盖）──
 .inbox
-.workbuddy
+.claude/
+.codegraph/
+.workbuddy/
+# clangd 索引缓存
+.cache/
+# .vscode/ 整体入库；只挡日志
+.vscode/*.log
+
+# ── SDK 自身工具输出 ──
+# 本机待办草稿，非仓库资产
 todo.md
+__pycache__/
+*.pyc
+
+# ── 构建产物（全部可再生成）──
+/build/
+/Build/
+/Debug/
+/Release/
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lst
+
+# ── Keil MDK-ARM ──
+# SDK 本身不含 Keil 工程；留这些是为了将来往库里塞 demo/ 时不把 IDE 垃圾带进来
+/MDK-ARM/
+/RTE/
+*.uvprojx
+*.uvoptx
+*.uvguix.*
+*.axf
+*.crf
+*.dep
+*.lnp
+*.plg
+*.scvd
+*.htm
+JLinkLog.txt
+JLinkSettings.ini
+*.jflash
+
+# ── 其他 IDE / 编辑器 ──
+/.settings/
+/.metadata/
+
+# ── CMake 误 in-source 构建的兜底（本工作流一律 out-of-source 到 build/）──
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# ── 备份 / 临时副本 ──
+*.bak
+*.orig
+*~
+# CubeMX 解析失败时产出的副本：是故障信号，别提交，但要查 .ioc 为什么解析不了
+*.ioc.broken
