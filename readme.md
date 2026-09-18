@@ -27,7 +27,7 @@ mystm32-sdk/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
 │   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/
 │   ├── protocols/    # 协议 / 算法库
-│   │   ├── ac_codec/ mqtt/ wol/
+│   │   ├── ac_codec/ cli/ mqtt/ wol/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
@@ -141,6 +141,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **OLED 驱动（oled12864）文本/字模用法**：字模由用户按 `oled_font_t` 注入 + `OLED_RegisterFont` 注册，再 `OLED_DrawString` 显示；驱动不内置字库，详见 `library/devices/oled12864/readme.md`。
 - **RFID 读卡（ws1850s）异步用法**：`uart_drv_t*` 注入 + 周期调用 `ws1850s_process()`（拉取收包/状态机），卡片/结果经 `card_cb`/`result_cb` 回调上抛，全程不阻塞；详见 `library/devices/ws1850s/readme.md`。
 - **IR 收发（`ir_receiver` / `ir_transmitter`）的 TIM 配置依赖**：`ir_receiver` = **一路通用定时器配成 Input Capture**（通道须接到解调接收头 OUT；1MHz 计数、ARR 取满量程、使能 NVIC），在 `HAL_TIM_IC_CaptureCallback()` 里转调 `ir_receiver_isr()`；`ir_transmitter` = **一路 TIM PWM 通道**（载波，ARR/CCR 由 cfg 覆写）+ **另一路空闲 TIM 作 µs 时基**（自由运行 1MHz，无引脚、无中断）。**不用 DWT**——工程侧实测部分 F1 板 CYCCNT 不可靠（自检偶发通过、发码时却冻结）。两个模块都是**多实例**（实例 + cfg 注入），详见各自 `readme.md`。
+- **串口命令行（`protocols.cli`）用法**：传输由工程注入 `cli_transport_t`（`getc` / `write` / `flush`，三者都带 `ctx`），命令用 `cli_register()` 因表注册、业务模块自带 `xxx_cli_cmds[]`，app 侧只做聚合；内置防回显自激四道闸（一次只执行一条 / 执行后 `flush` / 命令级 `guard_ms` / 未知行静默+限速摘要），handler **不得阻塞**（长动作只置标志，交任务执行）；详见 `library/protocols/cli/readme.md`。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
@@ -151,6 +152,15 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   **task.json 与 sdk_run.py 都不硬编码 SDK 路径**；换 SDK 目录只改 `sdk.toml` 的 `sdk = "..."` 一行。
 
 ## 版本变更记录
+
+### 新增 protocols.cli（2026-09-18）— 串口命令行核心（命令注册 + 行解析）
+
+- 新增 `library/protocols/cli/`（`Inc/cli_core.h` + `Src/cli_core.c` + `readme.md`，V1.0）：依赖仅 `chip.oop_dwt`（去抖窗口与限速上报的时基），不碰 HAL/OS，也不绑定任何具体串口。
+- 来源：ir-demo-stm32 工程的 `User/Src/uart_cli.c`。那里「6 条命令的 if-else 链」只是数据，而「防回显自激四道闸」是通用知识，不该每个工程重新踩一遍。
+- 有意改掉旧实现的粗糙处（非兼容性问题）：参数改用空白分隔（`txcar 38000`，旧实现是删光空白的 `TXCAR38000`，且 `T X` 会被规范化成 `TX` 命中命令）；仅命令名大小写不敏感、参数原样保留；数字解析加溢出检查。
+- 接口：`cli_init` / `cli_register`（可多张表累加）/ `cli_process`（逐字节拉）/ `cli_feed`（整包推，配 `chip.oop_uart` 用）/ `cli_printf` / `cli_print_help` / `cli_parse_u32_range`；handler 返回 `CLI_RET_BAD_ARG` 时核心自动代打 usage。
+- 首批用户回灌验证：ir-demo-stm32 的 6 条命令（status / txpol / txcar / txn / txmod / tx）改为注册式。
+- SDK 版本 0.6.0 → 0.7.0。
 
 ### IR 收发升 V2.0（2026-09-18）— 取工程侧稳定方案：输入捕获 + CCR 门控
 

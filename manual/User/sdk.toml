@@ -30,5 +30,6 @@ board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User
 
 # ---- protocols：协议/算法 ----
 "protocols.ac_codec" = true   # 空调红外编码
+"protocols.cli"      = true   # 串口命令行（命令注册 + 解析）
 "protocols.mqtt"     = true   # MQTT 客户端
 "protocols.wol"      = true   # Wake-on-LAN（依赖工程侧 lwIP）
