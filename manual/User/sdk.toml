@@ -18,6 +18,7 @@ board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User
 "chip.oop_uart"  = true   # UART 驱动
 "chip.oop_tim"   = true   # TIM OOP 封装（PWM 载波 / 时基 IT）
 "chip.oop_iwdg"  = true   # IWDG OOP 封装（喂狗）
+"chip.oop_flash" = true   # 内部 Flash（擦/写/读回 + 几何查询 + 安全闸）—— OTA 必备
 "chip.platform"  = true   # HAL 统一入口（系列宏）
 
 # ---- devices：板载外挂器件（按工程实际选用） ----
@@ -27,9 +28,13 @@ board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User
 "devices.ir_receiver"    = true   # 红外接收
 "devices.ir_transmitter" = true   # 红外发射
 "devices.lan8720a"   = true   # ETH PHY 复位
+"devices.spi_nor_flash" = true   # 通用 SPI NOR（OTA 暂存/备份；需 chip.oop_spi + 工程侧 SPI 外设）
 
 # ---- protocols：协议/算法 ----
 "protocols.ac_codec" = true   # 空调红外编码
 "protocols.cli"      = true   # 串口命令行（命令注册 + 解析）
 "protocols.mqtt"     = true   # MQTT 客户端
 "protocols.wol"      = true   # Wake-on-LAN（依赖工程侧 lwIP）
+
+# ---- services：系统服务（固件生命周期等） ----
+# 目前尚无已发布模块；OTA 系列（services.ota_core / bootloader / ota）建成后在此列出。

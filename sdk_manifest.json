@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.7.0",
+    "version": "0.8.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -27,6 +27,7 @@
     "chip": "MCU 内部外设 OOP 封装（基于 HAL，板无关）",
     "devices": "板载外挂芯片驱动（坐 chip/ 总线，不碰 MCU 寄存器）",
     "protocols": "协议封装 + 可复用算法库",
+    "services": "系统服务（固件生命周期等，板无关；与 devices/protocols 同样禁止直调 HAL）",
     "middleware": "第三方调试/传输库"
   },
   "modules": [
@@ -888,6 +889,48 @@
         "protocols/Modbus/Src/modbus_tcp_adapter.c",
         "protocols/Modbus/Src/modbus_uart_adapter.c"
       ]
+    },
+    {
+      "id": "chip.oop_flash",
+      "name": "oop_flash",
+      "layer": "chip",
+      "category": "flash",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "chip/oop_flash",
+      "description": "内部 Flash OOP 驱动（HAL_FLASH_* 唯一入口）：扇区擦除 / 写入 / 读回 / 几何查询 / 安全闸。几何按系列内置——F4 变长扇区（16K/64K/128K，实际扇区数由 FLASH_SIZE 截断）、F1 等长页（≤128KB 器件 1KB / >128KB 器件 2KB）、G4 等长页 2KB（含双 Bank 页号）；oop_flash_erase() 自动按扇区展开，上层不必知道粒度。写入单位 F1=2B / F4=4B / G4=8B，首尾非对齐由内部读-改-写补齐。oop_flash_set_guard() 可收紧允许擦写的窗口（防上层地址算错擦掉 BL）。G4 分支未上板验证；双 Bank F4 编译期 #error（HAL 扇号 SNB 偏移未实现）。",
+      "depends": [
+        "chip.platform"
+      ],
+      "backends": [
+        "hal"
+      ],
+      "files": [
+        "chip/oop_flash/Inc/oop_flash_drv.h",
+        "chip/oop_flash/Src/oop_flash_drv.c"
+      ]
+    },
+    {
+      "id": "devices.spi_nor_flash",
+      "name": "spi_nor_flash",
+      "layer": "devices",
+      "category": "flash",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "devices/spi_nor_flash",
+      "description": "通用 SPI NOR Flash 驱动（W25Q / GD25Q / BY25Q / EON 同族单线器件）。坐 chip.oop_spi 之上：SPI 走 oop_spi_*、CS/WP 走 chip.oop_gpio、计时走 chip.oop_dwt，不直调任何 HAL_SPI_*/HAL_GPIO_*。单条 0x9F 读 JEDEC ID 定容量（容量码 2^code，非标容量码可由 cfg.size 兜底）；0x0B FAST_READ 或 0x03 READ；页编程自动按页切分（不跨页）、每次 WREN + 回读 WEL 校验；擦除自动选 64KB 块擦 / 4KB 扇区擦并向单位边界对齐。设计取舍：不做异步状态机，改用「单位操作阻塞 + spi_nor_set_idle_cb() 空闲回调」——等待 WIP 期间反复回调（喂狗 / 进度 / 可返回 false 中止），由上层决定一次喂多少字节。",
+      "depends": [
+        "chip.oop_spi",
+        "chip.oop_gpio",
+        "chip.oop_dwt"
+      ],
+      "backends": [
+        "chip.oop_spi"
+      ],
+      "files": [
+        "devices/spi_nor_flash/Inc/spi_nor_flash.h",
+        "devices/spi_nor_flash/Src/spi_nor_flash.c"
+      ]
     }
   ],
   "notes": [
@@ -908,6 +951,7 @@
     "★ 2026-09-18 入库 devices.ws1850s（V1.0，异步版）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。原工程 rfid-driver 有「阻塞等待（mcu-main，TIM6_Delay_ms 忙等）」与「异步状态机（mcu-dev）」两版，本次仅按异步逻辑迁入 SDK：uart_drv_t* 注入 + ws1850s_process() 拉取收包 + 回调（result/card/state），全程不阻塞，与 devices.hlk_rm58s 同构。帧解析忠实移植原 demo（cmd 应答/主动读卡帧字段），未上板实测，首次使用请结合 RTT 日志校验帧字段。",
     "★ 2026-09-18 改名（去芯片名 / 补全长名）：devices.ir_1838b → devices.ir_receiver（1838B 只是解调输出型接收头的一个型号，模块不绑定芯片），devices.ir_tx → devices.ir_transmitter（tx 过短且与 receiver 不成对）。符号同步：IR1838B_* → IR_Receiver_*、IR_TX_* → IR_Transmitter_*、ir_tx_cfg_t → ir_transmitter_cfg_t；文件/守卫/全库引用（manual 的 sdk.toml 与 board_cfg 模板、sync_lib.py、oop_tim 与 ac_codec 注释）一并更新。同时修正 ir_receiver 描述——原写「基于定时器输入捕获」与实现不符，实为 GPIO 双沿中断 + DWT 打时间戳。",
     "★ 2026-09-18 IR 收发改为工程侧稳定方案（输入捕获 + CCR 门控），模块升 V2.0：ir_receiver 由「GPIO EXTI + DWT 打时间戳 + 1ms TIM 收尾」改为 TIM 输入捕获（硬件锁存，零抖动；F1 无硬件双沿故在 ISR 内翻转 CCxP 软件模拟；时间差按 ARR+1 环形减法补偿 16 位回绕；200us 去抖滤 AGC 饱和毛刺；帧结束由 process() 轮询判定），并去掉不可达的 TIMEOUT/mute 路径。ir_transmitter 由「DWT 微秒延时 + 每段 Start/Stop PWM」改为「载波常开 + CCR 门控」（OCxPE=0 时单次寄存器写即生效，避免最坏一个载波周期的抖动）+ µs 时基改用注入的自由运行 TIM（工程实测部分 F1 板 DWT CYCCNT 不可靠：自检偶发通过、发码时冻结），并加时基冻结死机保护 + init 探测。两模块依赖收敛为 chip.platform + chip.oop_tim（不再用 oop_gpio/oop_dwt/SEGGER_RTT），公开 API 由全局单例改为多实例 init/start/stop/process/send。另：chip.platform 补上 STM32F1 分支（此前只有 F4/G4，F103 工程无法编译）；chip.oop_tim 的 depends 补上 chip.oop_dma（oop_tim_drv.c 直连 oop_dma_drv.h，此前漏声明导致按依赖闭包拉取时会缺文件）。",
-    "★ 2026-09-18 新增 protocols.cli（V1.0）：串口命令行核心。来源是 ir-demo-stm32 工程的 User/Src/uart_cli.c——那份代码里硬编码了 6 条命令的 if-else 链，但真正难得的是防回显自激的四道闸（它们是在真实链路上逐条踩出来的：一次 poll 只执行一条 / 执行后 flush RX / 同名命令去抖窗口 / 未知行静默丢弃只限速上报，否则报错被回显再解析会自激刷屏）。故把「命令表 + 行解析 + 四道门」抽成模块，业务模块自带 xxx_cli_cmds[]，app 侧只做聚合注册。与旧实现的此意图差异：参数改用空白分隔（txcar 38000，旧实现把空白全删成 TXCAR38000，且 T X 会命中 TX）；仅命令名大小写不敏感、参数原样保留（避免将来 wifi <SSID> 这类参数被转大写）；数字解析加溢出检查。依赖仅 chip.oop_dwt（去抖/限速的时基），不碰 HAL。首批用户回灌验证：ir-demo-stm32 的 6 条命令（status/txpol/txcar/txn/txmod/tx）。"
+    "★ 2026-09-18 新增 protocols.cli（V1.0）：串口命令行核心。来源是 ir-demo-stm32 工程的 User/Src/uart_cli.c——那份代码里硬编码了 6 条命令的 if-else 链，但真正难得的是防回显自激的四道闸（它们是在真实链路上逐条踩出来的：一次 poll 只执行一条 / 执行后 flush RX / 同名命令去抖窗口 / 未知行静默丢弃只限速上报，否则报错被回显再解析会自激刷屏）。故把「命令表 + 行解析 + 四道门」抽成模块，业务模块自带 xxx_cli_cmds[]，app 侧只做聚合注册。与旧实现的此意图差异：参数改用空白分隔（txcar 38000，旧实现把空白全删成 TXCAR38000，且 T X 会命中 TX）；仅命令名大小写不敏感、参数原样保留（避免将来 wifi <SSID> 这类参数被转大写）；数字解析加溢出检查。依赖仅 chip.oop_dwt（去抖/限速的时基），不碰 HAL。首批用户回灌验证：ir-demo-stm32 的 6 条命令（status/txpol/txcar/txn/txmod/tx）。",
+    "★ 2026-09-18 新增 services 层与两个 flash 模块（v0.8.0）：chip.oop_flash（内部 Flash，HAL_FLASH_* 唯一入口；F1/F4/G4 三系列几何内置，三系列各编过零警告；双 Bank F4 编译期 #error，G4 未上板验证）+ devices.spi_nor_flash（通用 SPI NOR，坐 oop_spi/oop_gpio/oop_dwt，阻塞单位操作 + idle_cb 喂狗）。tools/oop_audit.py 的扫描范围加入 library/services（新层同样禁止直调 HAL）。同时为 OTA 方案铺路：services.ota_core / services.bootloader / services.ota / protocols.ymodem 待建，清单见 todo.md；方案文档在 ota-demo-stm32/doc/01~06。"
   ]
 }

@@ -2,20 +2,21 @@
 
 本仓库用于存放自建 STM32 SDK。
 
-仓库分三层，职责互不混淆：
+仓库分四层，职责互不混淆：
 - `library/` —— 固件源码（按 `sdk.toml` 自动拉取到工程 `MySDK/`），含：
   - 片上寄存器 OOP 封装（基于 HAL） —— `library/chip/`
   - 板外设备驱动 —— `library/devices/`
-  - 协议封装 —— `library/protocols/`
+  - 协议封装 / 可复用算法 —— `library/protocols/`
+  - 系统服务（固件生命周期、升级等） —— `library/services/`
   - 第三方中间件 —— `library/middleware/`
 - `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sync_lib.py` / `oop_audit.py`（SDK 维护）、`flash.bat` / `trans_gbk2utf-8.py`（工程面向）。
 - `manual/` —— 手动拷贝到工程的脚手架（`sdk_run.py` 桥接 + `.vscode` 接口模板 + `User/` 配置模板），**不自动拉取**。
 
 ## 版本
 
-- SDK 版本：**0.3.0**（2026-08-29）
+- SDK 版本：**0.8.0**（2026-09-18）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
-- 支持的 MCU 系列：STM32G4、STM32F4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
+- 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
 ## 目录结构
 
@@ -23,11 +24,12 @@
 mystm32-sdk/
 ├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
-│   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ platform/
+│   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ oop_spi/ oop_flash/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
-│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/
+│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/ spi_nor_flash/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ cli/ mqtt/ wol/
+│   ├── services/     # 系统服务（板无关，同 devices/protocols 禁止直调 HAL）
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
@@ -46,8 +48,10 @@ mystm32-sdk/
 
 ## 设计约定
 
-- **分层不按物理位置混淆**：`chip/`=MCU 内，`devices/`=板外，`protocols/`=协议，`middleware/`=第三方。弃用 `Core/bsp/Drivers` 笼统或越权名。
+- **分层不按物理位置混淆**：`chip/`=MCU 内，`devices/`=板外器件，`protocols/`=协议/算法，`services/`=系统服务（固件生命周期等），`middleware/`=第三方。弃用 `Core/bsp/Drivers` 笼统或越权名。
+- **`services/` 的判据**：不是协议、也不是某颗芯片，而是「跨项目的系统级流程」。放进来的是 OTA / bootloader 这类**固件生命周期**服务；塞不进原来四层、又想复用，才开这一层，别把随便什么工具函数都塞进去。
 - **HAL 保留**：CubeMX 生成的 HAL 仍是 vendor 底层，OOP 封装包在它上面；明确否决「全去 HAL 自写」。
+- **HAL 泄漏红线**：`tools/oop_audit.py` 扫 `library/{chip,devices,protocols,services}`。**只有 `chip/` 允许直接调用 `HAL_*` 函数或定义 `HAL_*Callback`**；其余四层一律只调 `oop_*`。跑 `--strict` 必须过。
 - **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sync_lib.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。
 - **`MySDK/` 必须进工程版本库**（不 gitignore）：虽然它由 sync 生成，但对拿到工程的人它就是源码的一部分——缺了不知道少什么、也无法直接编译。定位同 CubeMX 生成的 HAL 库与初始化代码，一律入库。
 - **版本号规则**：SDK 顶层用语义化版本（如 `0.1.0`）；模块 `version` 沿用源码 `@version` 标注（Vx.y 或第三方原生版本），无标注者记为 null。
@@ -159,6 +163,28 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+
+### 新增 services 层 + 两个 flash 模块（2026-09-18，v0.8.0）
+
+为 ota-demo-stm32 的 OTA 方案铺路（方案文档：`ota-demo-stm32/doc/01~06`）。
+
+- **新增 `chip.oop_flash`（V1.0）**：内部 Flash 驱动，`HAL_FLASH_*` 唯一入口。
+  扇区几何按系列内置 —— F4 变长扇区（16K/64K/128K，实际扇区数由 `FLASH_SIZE` 截断）、
+  F1 等长页（≤128 KB 器件 1 KB / >128 KB 器件 2 KB）、G4 等长页 2 KB（含双 Bank 页号）。
+  `oop_flash_erase()` 自动按扇区展开，上层不必知道粒度；写入单位 F1=2B / F4=4B / G4=8B，
+  首尾非对齐由内部读-改-写补齐。`oop_flash_set_guard()` 可收紧允许擦写的窗口，
+  防止上层地址算错把 Bootloader 自己擦掉。**三系列各编过、零警告**；
+  双 Bank F4（F427/F437/F429/F439/F469/F479）编译期 `#error`（HAL 对扇号 > 11 的 SNB 偏移规则未实现），
+  G4 分支未上板验证。
+- **新增 `devices.spi_nor_flash`（V1.0）**：通用 SPI NOR（W25Q/GD25Q/BY25Q/EON 同族）。
+  坐 `chip.oop_spi`/`oop_gpio`/`oop_dwt` 之上，零 HAL 直调。0x9F 读 JEDEC ID 定容量，
+  0x0B FAST_READ；页编程自动按页切分 + WREN + 回读 WEL 校验；擦除自动选 64 KB 块擦 / 4 KB 扇区擦。
+  设计取舍：**不做异步状态机**，改为「单位操作阻塞 + `spi_nor_set_idle_cb()` 空闲回调」——
+  等 WIP 期间反复回调（喂狗 / 进度 / 返回 false 可中止），由上层决定一次喂多少字节。
+- **`tools/oop_audit.py`**：扫描范围加入 `library/services`（新层同样禁止直调 HAL）；
+  `allow_hal` 判定改为按目录名 `endswith("/chip")`，避免以后加层时漏改映射表。
+- 待建：`services.ota_core`（BL/APP 共用底座）、`services.bootloader`、`services.ota`、
+  `protocols.ymodem`、`tools/ota_pack.py` —— 清单见 `todo.md`。
 
 ### 忽略项默认模板（2026-09-18）— `.gitignore` 两份 + manual 脚手架补充
 
