@@ -1,39 +1,39 @@
 /**
- * @file    ir_tx.c
- * @brief   红外发射驱动实现（TIM9 38kHz 载波 + DWT 门控）
+ * @file    ir_transmitter.c
+ * @brief   红外发射驱动实现（TIM PWM 38kHz 载波 + DWT 门控）
  * @version V1.0
  * @date    2026-08-27
  */
 
-#include "ir_tx.h"
+#include "ir_transmitter.h"
 #include "oop_dwt.h"
 #include "oop_gpio_drv.h"
 #include "oop_tim_drv.h"
 #include "SEGGER_RTT_Log.h"
 
 /* ========== 内部状态 ========== */
-static ir_tx_cfg_t          s_cfg;
-static TIM_HandleTypeDef    s_htim_tx;
+static ir_transmitter_cfg_t          s_cfg;
+static TIM_HandleTypeDef    s_htim;
 static gpio_dev_t           s_tx_gpio = {0};
 static volatile bool        s_busy    = false;
 static bool                 s_inited  = false;
 
 /* ========== 载波门控 ========== */
-static inline void ir_tx_carrier(bool on)
+static inline void ir_transmitter_carrier(bool on)
 {
     if (on) {
-        oop_tim_pwm_start(&s_htim_tx, s_cfg.tim_channel);
+        oop_tim_pwm_start(&s_htim, s_cfg.tim_channel);
     } else {
-        oop_tim_pwm_stop(&s_htim_tx, s_cfg.tim_channel);
+        oop_tim_pwm_stop(&s_htim, s_cfg.tim_channel);
     }
 }
 
 /* ========== API ========== */
 
-bool IR_TX_Init(const ir_tx_cfg_t *cfg)
+bool IR_Transmitter_Init(const ir_transmitter_cfg_t *cfg)
 {
     if (cfg == NULL) {
-        SYS_LOG("IR_TX: Init FAIL, cfg=NULL");
+        SYS_LOG("IR_Transmitter: Init FAIL, cfg=NULL");
         return false;
     }
     if (s_inited) {
@@ -53,32 +53,32 @@ bool IR_TX_Init(const ir_tx_cfg_t *cfg)
     OOP_GPIO_WRITE_RAW(&s_tx_gpio, GPIO_PIN_RESET);
 
     /* 时基：按注入参数配置 PWM 载波（走 OOP TIM） */
-    s_htim_tx.Instance = s_cfg.tim_inst;
-    if (!oop_tim_pwm_init(&s_htim_tx, s_cfg.tim_channel,
+    s_htim.Instance = s_cfg.tim_inst;
+    if (!oop_tim_pwm_init(&s_htim, s_cfg.tim_channel,
                           s_cfg.tim_psc, s_cfg.tim_arr, s_cfg.tim_ccr)) {
-        SYS_LOG("IR_TX: TIM PWM init FAIL");
+        SYS_LOG("IR_Transmitter: TIM PWM init FAIL");
         return false;
     }
 
     /* 初始化后不启动计数器，发送时才开 */
     s_inited = true;
-    SYS_LOG("IR_TX: Init OK (PWM carrier via injected TIM/channel)");
+    SYS_LOG("IR_Transmitter: Init OK (PWM carrier via injected TIM/channel)");
     return true;
 }
 
-void IR_TX_DeInit(void)
+void IR_Transmitter_DeInit(void)
 {
     if (!s_inited) {
         return;
     }
-    ir_tx_carrier(false);
-    oop_tim_pwm_deinit(&s_htim_tx);
+    ir_transmitter_carrier(false);
+    oop_tim_pwm_deinit(&s_htim);
     OOP_GPIO_WRITE_RAW(&s_tx_gpio, GPIO_PIN_RESET);
     s_inited = false;
-    SYS_LOG("IR_TX: DeInit");
+    SYS_LOG("IR_Transmitter: DeInit");
 }
 
-bool IR_TX_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
+bool IR_Transmitter_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
                    uint8_t repeats, uint16_t repeat_gap_ms)
 {
     if (!s_inited || dur_us == NULL || count == 0) {
@@ -99,9 +99,9 @@ bool IR_TX_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
         for (uint16_t i = 0; i < count; i++) {
             if (level == 0) {
                 /* 载波段：点亮红外发射管（VS1838B 低电平 = 有载波） */
-                ir_tx_carrier(true);
+                ir_transmitter_carrier(true);
                 oop_DelayUS(dur_us[i]);
-                ir_tx_carrier(false);
+                ir_transmitter_carrier(false);
             } else {
                 /* 静默段：保持熄灭 */
                 oop_DelayUS(dur_us[i]);
@@ -118,7 +118,7 @@ bool IR_TX_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
     return true;
 }
 
-bool IR_TX_IsBusy(void)
+bool IR_Transmitter_IsBusy(void)
 {
     return s_busy;
 }

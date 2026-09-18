@@ -25,7 +25,7 @@ mystm32-sdk/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
 │   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
-│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_1838b/ ir_tx/ lan8720a/ oled12864/ led_matrix/ ws1850s/
+│   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/
 │   ├── protocols/    # 协议 / 算法库
 │   │   ├── ac_codec/ mqtt/ wol/
 │   └── middleware/   # 第三方调试/传输库
@@ -70,7 +70,7 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 [modules]                              # 只列叶子模块，depends 闭包自动补全
 "chip.oop_dwt"   = true
-"devices.ir_tx"  = true
+"devices.ir_transmitter"  = true
 # ...
 ```
 
@@ -125,7 +125,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 ### 4. 增删模块
 
 - **加**：在 `[modules]` 加 `"<layer>.<name>" = true`，闭包自动补全（如选
-  `devices.ir_tx` 会自动带入 `chip.oop_gpio/chip.oop_tim/chip.platform/middleware.SEGGER_RTT`）。重跑 sync。
+  `devices.ir_transmitter` 会自动带入 `chip.oop_gpio/chip.oop_tim/chip.platform/middleware.SEGGER_RTT`）。重跑 sync。
 - **删**：把对应行改成 `= false`（或删行），重跑 sync 会按新闭包重新镜像。
 - **查可用模块 id**：看 `sdk_manifest.json` 的 `modules[].id`。
 
@@ -140,6 +140,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **LwIP 接入完整避坑清单（CubeMX DNS / RTOS 任务栈 512×4 / MicroLIB / PHY 9 脚电源 / 晶振 / LED 检查）**：见 `library/devices/lan8720a/readme.md`。
 - **OLED 驱动（oled12864）文本/字模用法**：字模由用户按 `oled_font_t` 注入 + `OLED_RegisterFont` 注册，再 `OLED_DrawString` 显示；驱动不内置字库，详见 `library/devices/oled12864/readme.md`。
 - **RFID 读卡（ws1850s）异步用法**：`uart_drv_t*` 注入 + 周期调用 `ws1850s_process()`（拉取收包/状态机），卡片/结果经 `card_cb`/`result_cb` 回调上抛，全程不阻塞；详见 `library/devices/ws1850s/readme.md`。
+- **IR 收发（`ir_receiver` / `ir_transmitter`）的 TIM 配置依赖**：`ir_receiver` = 一个**任意 GPIO 的 EXTI 双沿中断**（接解调接收头 OUT，空闲高）+ 一个**1ms 更新中断 TIM**（CubeMX 里使能其 NVIC，并在其 ISR 内调 `IR_Receiver_Tick1ms()` 做静默收尾）；`ir_transmitter` = **一路 TIM PWM 通道**，PSC/ARR/CCR 由 `ir_transmitter_cfg_t` 注入并覆写。两者时序基准均为 `oop_dwt`（DWT CYCCNT）。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
@@ -151,6 +152,13 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 
 ## 版本变更记录
 
+### IR 模块改名（2026-09-18）— ir_1838b → ir_receiver、ir_tx → ir_transmitter
+
+- `devices/ir_1838b` → `devices/ir_receiver`：1838B 只是「解调输出型接收头」的一个型号，模块本身不绑定芯片，故改用功能名；符号 `IR1838B_*` → `IR_Receiver_*`，头文件名与守卫同步。
+- `devices/ir_tx` → `devices/ir_transmitter`：`tx` 过短且与 `rx` 不成对，改为与 `ir_receiver` 对称的全名；符号 `IR_TX_*` → `IR_Transmitter_*`，类型 `ir_tx_cfg_t` → `ir_transmitter_cfg_t`。
+- 同步更新：manifest id/path/files、`manual/User/sdk.toml`、`manual/User/board_cfg.h`（`BOARD_IR_TX_CFG` → `BOARD_IR_TRANSMITTER_CFG`）、`tools/sync_lib.py` 模板、`chip.oop_tim` 与 `protocols.ac_codec` 的注释引用。
+- 顺带修正 manifest 里 `ir_receiver` 的描述：原写「基于定时器输入捕获」与实现不符，实为 **GPIO 双沿中断 + DWT 打时间戳**（1ms TIM 仅用于静默收尾）。
+
 ### 新增 devices.ws1850s（2026-09-18）— RFID 读卡器异步驱动
 
 - 新增 `devices/ws1850s`（V1.0）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。按原工程 `rfid-driver` 的**异步版**逻辑迁入（另一版为阻塞忙等，未采用）：`uart_drv_t*` 注入 + `ws1850s_start()` 初始化状态机 + `ws1850s_process()` 拉取收包，结果/卡片/状态经回调上抛，全程不阻塞，与 `devices.hlk_rm58s` 同构。
@@ -161,7 +169,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 
 ### v0.3.0 (2026-08-29) — devices 层零直调 HAL + 任务接口统一
 
-- 新增 `oop_tim` / `oop_iwdg` / `oop_dwt(oop_GetTickMS)`；devices 全部经 OOP 操作（`ir_tx`/`ir_1838b`/`heart_beat`/`lan8720a`/`hlk_rm58s`），`dht11` 走原始原语。device init 收口到 `Task_X_Init()`。
+- 新增 `oop_tim` / `oop_iwdg` / `oop_dwt(oop_GetTickMS)`；devices 全部经 OOP 操作（`ir_transmitter`/`ir_receiver`/`heart_beat`/`lan8720a`/`hlk_rm58s`），`dht11` 走原始原语。device init 收口到 `Task_X_Init()`。
 
 ### v0.2.0 (2026-08-28) — bsp_* 全面更名 oop_* + 依赖规范化
 
@@ -169,7 +177,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 
 ### v0.1.1 (2026-08-28) — 修复 OOP 封装泄漏 HAL
 
-- 全库剔除工程头/具体句柄/MX 引脚宏，改由各模块 `init` 注入（`uart`/`ir_1838b`/`ir_tx`/`heart_beat`/`lan8720a`/`dht11`/`wol`/`oop_dwt`）。新增 `oop_audit.py` 回归防护。
+- 全库剔除工程头/具体句柄/MX 引脚宏，改由各模块 `init` 注入（`uart`/`ir_receiver`/`ir_transmitter`/`heart_beat`/`lan8720a`/`dht11`/`wol`/`oop_dwt`）。新增 `oop_audit.py` 回归防护。
 
 ### v0.1.0 (2026-08-28) — 初始版本
 

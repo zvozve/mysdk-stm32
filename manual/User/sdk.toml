@@ -24,8 +24,8 @@ board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User
 "devices.dht11"      = true   # 温湿度
 "devices.heart_beat" = true   # 心跳 LED
 "devices.hlk_rm58s"  = true   # WiFi 模组（AT）
-"devices.ir_1838b"   = true   # 红外接收
-"devices.ir_tx"      = true   # 红外发射
+"devices.ir_receiver"    = true   # 红外接收
+"devices.ir_transmitter" = true   # 红外发射
 "devices.lan8720a"   = true   # ETH PHY 复位
 
 # ---- protocols：协议/算法 ----

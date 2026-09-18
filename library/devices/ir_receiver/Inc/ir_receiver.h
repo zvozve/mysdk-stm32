@@ -1,12 +1,12 @@
 /**
- * @file    ir_1838b.h
- * @brief   1838B 红外接收驱动（基于 oop_gpio）
+ * @file    ir_receiver.h
+ * @brief   IR 接收驱动（解调输出型接收头，如 VS1838B/HX1838）—— GPIO 双沿中断 + DWT 计时
  * @version V1.0
  * @date    2026-08-25
  */
 
-#ifndef __IR_1838B_H
-#define __IR_1838B_H
+#ifndef __IR_RECEIVER_H
+#define __IR_RECEIVER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -21,7 +21,7 @@ extern "C" {
 /* 空调帧边沿数较多：格力两段帧约 136，美的三连帧接近 300，预留到 320 */
 #define IR_RAW_MAX_EDGES        320     /* 一帧最大边沿数 */
 #define IR_FRAME_TIMEOUT_MS     30      /* 帧超时时间（ms） */
-#define IR_IDLE_HIGH            1       /* 1838B 空闲为高电平 */
+#define IR_IDLE_HIGH            1       /* 解调接收头空闲为高电平 */
 
 /* ========== 原始数据 ========== */
 typedef struct {
@@ -39,12 +39,12 @@ typedef bool (*ir_protocol_decoder_t)(const ir_raw_frame_t *raw, void *result);
 
 /**
  * @brief  初始化 1838B 接收
- * @param  port, pin  1838B OUT 连接的 GPIO（由工程 board_cfg 注入）
+ * @param  port, pin  接收头 OUT 连接的 GPIO（由工程 board_cfg 注入）
  * @param  htim       提供 1ms 节拍的 TIM 句柄（由工程注入；TIM 须在 CubeMX 配好 1ms，
- *                    其更新中断里调用 IR1838B_Tick1ms）
+ *                    其更新中断里调用 IR_Receiver_Tick1ms）
  * @note  SDK 不记录任何具体定时器/句柄，全部由调用方注入。
  */
-bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim);
+bool IR_Receiver_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim);
 
 /**
  * @brief  1ms 周期节拍（由 TIM6 更新中断调用）
@@ -52,50 +52,50 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim);
  *         帧结束后不会再有边沿到来，必须由超时机制收尾，
  *         否则帧要等下一次按键的第一个边沿才能上报。
  */
-void IR1838B_Tick1ms(void);
+void IR_Receiver_Tick1ms(void);
 
 /**
  * @brief  反初始化
  */
-void IR1838B_DeInit(void);
+void IR_Receiver_DeInit(void);
 
 /**
  * @brief  使能/禁用接收
  */
-void IR1838B_Enable(bool enable);
+void IR_Receiver_Enable(bool enable);
 
 /**
  * @brief  是否有新帧
  */
-bool IR1838B_Available(void);
+bool IR_Receiver_Available(void);
 
 /**
  * @brief  获取一帧原始数据
  */
-bool IR1838B_GetRaw(ir_raw_frame_t *frame);
+bool IR_Receiver_GetRaw(ir_raw_frame_t *frame);
 
 /**
  * @brief  注册协议解码器
  */
-void IR1838B_RegisterDecoder(ir_protocol_decoder_t decoder);
+void IR_Receiver_RegisterDecoder(ir_protocol_decoder_t decoder);
 
 /**
  * @brief  使用已注册解码器解析
  */
-bool IR1838B_Decode(void *result);
+bool IR_Receiver_Decode(void *result);
 
 /**
  * @brief  打印原始帧（用于协议逆向）
  */
-void IR1838B_PrintRaw(const ir_raw_frame_t *frame);
+void IR_Receiver_PrintRaw(const ir_raw_frame_t *frame);
 
 /**
  * @brief  打印当前驱动状态（调试用）
  */
-void IR1838B_PrintStatus(void);
+void IR_Receiver_PrintStatus(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __IR_1838B_H */
+#endif /* __IR_RECEIVER_H */

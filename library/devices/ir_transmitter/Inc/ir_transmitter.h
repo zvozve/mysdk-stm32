@@ -1,5 +1,5 @@
 /**
- * @file    ir_tx.h
+ * @file    ir_transmitter.h
  * @brief   红外发射驱动（TIM 硬件 38kHz 载波 + 软件门控时序）
  * @version V1.0
  * @date    2026-08-27
@@ -9,13 +9,13 @@
  *   - 发射“mark”段时使能载波输出，发射“space”段时关闭输出
  *   - 各段时长用 DWT 微秒延时门控，从而原样重放学习到的波形
  *
- * 电平语义（与 ir_1838b 接收侧一致）：
+ * 电平语义（与 ir_receiver 接收侧一致）：
  *   - VS1838B 输出 低电平 = 检测到 38kHz 载波（mark）
  *   - 因此重放时，段电平为 0 → 点亮红外发射管
  */
 
-#ifndef __IR_TX_H
-#define __IR_TX_H
+#ifndef __IR_TRANSMITTER_H
+#define __IR_TRANSMITTER_H
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -35,7 +35,7 @@ typedef struct {
     uint32_t         tim_psc;       /* 预分频：计数频率 = TIM_CLK/(PSC+1) */
     uint32_t         tim_arr;       /* 自动重装：周期 = (ARR+1) 计数 */
     uint32_t         tim_ccr;       /* 比较值：占空比 = CCR/(ARR+1) */
-} ir_tx_cfg_t;
+} ir_transmitter_cfg_t;
 
 /* ========== API ========== */
 
@@ -45,12 +45,12 @@ typedef struct {
  * @retval true 成功
  * @note   外设时钟（GPIO/TIM）由工程 CubeMX 初始化开启，驱动不接管时钟使能。
  */
-bool IR_TX_Init(const ir_tx_cfg_t *cfg);
+bool IR_Transmitter_Init(const ir_transmitter_cfg_t *cfg);
 
 /**
  * @brief  反初始化（关闭载波，停定时器）
  */
-void IR_TX_DeInit(void);
+void IR_Transmitter_DeInit(void);
 
 /**
  * @brief  重放一帧原始时序（学习码回放的核心接口）
@@ -62,16 +62,16 @@ void IR_TX_DeInit(void);
  * @retval true 发送完成
  * @note   阻塞调用：空调帧约持续 50~100ms；发送期间红外接收中断不受影响。
  */
-bool IR_TX_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
+bool IR_Transmitter_SendRaw(const uint16_t *dur_us, uint16_t count, uint8_t level_start,
                    uint8_t repeats, uint16_t repeat_gap_ms);
 
 /**
  * @brief  是否正在发送
  */
-bool IR_TX_IsBusy(void);
+bool IR_Transmitter_IsBusy(void);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* __IR_TX_H */
+#endif /* __IR_TRANSMITTER_H */

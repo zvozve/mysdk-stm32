@@ -32,7 +32,7 @@ extern "C" {
 /* #define BOARD_HEART_IWDG        NULL                  */
 
 /* TODO: 示例——红外发射：复合配置（引脚/定时器/载波参数） */
-/* #define BOARD_IR_TX_CFG         { GPIOE, GPIO_PIN_6, GPIO_AF3_TIM9, \
+/* #define BOARD_IR_TRANSMITTER_CFG         { GPIOE, GPIO_PIN_6, GPIO_AF3_TIM9, \
                                     TIM9, TIM_CHANNEL_2, 167, 25, 9 } */
 
 /* TODO: 示例——非 CubeMX 管理的外设时钟（驱动不再接管 RCC，由工程开启） */
