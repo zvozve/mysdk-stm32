@@ -1,261 +1,197 @@
 /**
  * @file    ir_receiver.c
- * @brief   IR 接收驱动实现（解调输出型接收头）
- * @version V1.2
- * @date    2026-08-27
+ * @brief   红外接收驱动实现 —— 见 ir_receiver.h 顶部的设计说明
+ * @version V2.0
+ * @date    2026-09-18
  */
 
 #include "ir_receiver.h"
-#include "oop_dwt.h"
-#include "oop_tim_drv.h"
-#include "SEGGER_RTT_Log.h"
-#include "hal_platform.h"   /* TIM_HandleTypeDef / HAL_TIM_Base_Start_IT（不依赖工程 tim.h） */
-#include <string.h>
 
-/* ========== 内部变量 ========== */
-static gpio_dev_t               s_ir_dev;
-static TIM_HandleTypeDef        *s_htim = NULL;   /* 1ms 节拍定时器，由 IR_Receiver_Init 注入 */
-static volatile bool            s_enabled = false;
-static volatile bool            s_frame_ready = false;
+/* ===========================
+ * 计数 <-> 微秒换算
+ * =========================== */
 
-static ir_raw_frame_t           s_raw;
-static volatile uint16_t        s_edge_cnt = 0;
-static volatile uint32_t        s_last_edge_cycle = 0;
-static volatile uint8_t         s_last_level = 1;
-
-static ir_protocol_decoder_t    s_decoder = NULL;
-
-/* 调试计数 */
-static volatile uint32_t        s_irq_cnt = 0;      /* 中断触发次数 */
-static volatile uint32_t        s_frame_cnt = 0;     /* 成功接收帧数 */
-
-/* ========== 中断回调 ========== */
-static void ir_gpio_callback(uint16_t pin, void *user_data)
+/** 捕获计数值 -> 微秒（先约掉整数倍关系，规避 32 位乘法溢出） */
+static uint16_t ir_receiver_cnt_to_us(const ir_receiver_t *rx, uint32_t cnt)
 {
-    (void)pin;
-    (void)user_data;
+    uint32_t per_us = rx->clk_hz / 1000000UL;
+    uint32_t us;
 
-    s_irq_cnt++;
-
-    if (!s_enabled || s_frame_ready) {
-        return;
+    if (per_us > 0U) {
+        us = cnt / per_us;                       /* 常见情况：clk_hz = 1MHz */
+    } else {
+        us = (uint32_t)(((uint64_t)cnt * 1000000ULL) / rx->clk_hz);
     }
 
-    uint32_t now   = oop_GetCycleCount();
-    uint8_t  level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
-
-    /* 第一个边沿：记录起始电平 */
-    if (s_edge_cnt == 0 && s_last_edge_cycle == 0) {
-        s_raw.level_start = level;  // 直接记录当前电平作为起始电平
-        s_last_edge_cycle = now;
-        s_last_level = level;
-        return;
-    }
-
-    /* 计算时间间隔 */
-    uint32_t us = oop_GetElapsedUS(s_last_edge_cycle, now);
-
-    /* 超时检测 - 帧结束 */
-    if (us > (IR_FRAME_TIMEOUT_MS * 1000U)) {
-        if (s_edge_cnt >= 4) {
-            s_raw.edges     = s_edge_cnt;
-            s_raw.valid     = true;
-            s_raw.timestamp = oop_GetTickMS();
-            s_frame_ready   = true;
-            s_frame_cnt++;
-        }
-        s_edge_cnt = 0;
-        s_last_edge_cycle = now;
-        s_last_level = level;
-        return;
-    }
-
-    /* 保存边沿时间（只保存有效范围内的） */
-    if (s_edge_cnt < IR_RAW_MAX_EDGES) {
-        s_raw.timing_us[s_edge_cnt] = (uint16_t)us;
-        s_edge_cnt++;
-    }
-
-    s_last_edge_cycle = now;
-    s_last_level      = level;
+    return (us > 0xFFFFUL) ? 0xFFFFU : (uint16_t)us;
 }
 
-/* ========== TIM6 节拍：静默收尾 ========== */
-/**
- * @brief  由 TIM6 更新中断每 1ms 调用
- * @note   TIM6 中断与 EXTI9_5 同为抢占优先级 5，二者不会互相抢占，
- *         因此访问共享状态无需额外加锁。
- */
-void IR_Receiver_Tick1ms(void)
+/** 微秒 -> 捕获计数值（用于去抖/静默阈值比较） */
+static uint32_t ir_receiver_us_to_cnt(const ir_receiver_t *rx, uint32_t us)
 {
-    if (!s_enabled || s_frame_ready || s_edge_cnt == 0) {
-        return;
-    }
-
-    uint32_t now = oop_GetCycleCount();
-    uint32_t us  = oop_GetElapsedUS(s_last_edge_cycle, now);
-
-    if (us <= (IR_FRAME_TIMEOUT_MS * 1000U)) {
-        return;
-    }
-
-    /* 静默超时：收尾当前帧 */
-    if (s_edge_cnt >= 4) {
-        s_raw.edges     = s_edge_cnt;
-        s_raw.valid     = true;
-        s_raw.timestamp = oop_GetTickMS();
-        s_frame_ready   = true;
-        s_frame_cnt++;
-    }
-
-    /* 无论是否成帧都清零，等待下一个首边沿重新建立计时 */
-    s_edge_cnt        = 0;
-    s_last_edge_cycle = 0;
-    s_last_level      = 1;
+    uint64_t cnt = ((uint64_t)us * rx->clk_hz) / 1000000ULL;
+    return (cnt > 0xFFFFFFFFULL) ? 0xFFFFFFFFUL : (uint32_t)cnt;
 }
 
-/* ========== API 实现 ========== */
+/* ===========================
+ * API
+ * =========================== */
 
-bool IR_Receiver_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
+bool ir_receiver_init(ir_receiver_t *rx, const ir_receiver_cfg_t *cfg)
 {
-    if (port == NULL || htim == NULL) {
-        SYS_LOG("IR_Receiver: Init FAIL, port/htim=NULL");
-        return false;
-    }
-    s_htim = htim;
-
-    memset(&s_raw, 0, sizeof(s_raw));
-    s_edge_cnt        = 0;
-    s_frame_ready     = false;
-    s_enabled         = false;
-    s_irq_cnt         = 0;
-    s_frame_cnt       = 0;
-    s_last_edge_cycle = 0;
-    s_last_level      = 1;  // 空闲高电平
-
-    /* 填充 GPIO 设备结构 */
-    s_ir_dev.pin.port        = port;
-    s_ir_dev.pin.pin         = pin;
-    s_ir_dev.pin.active_high = true;
-    s_ir_dev.is_initialized  = true;
-
-    /* 注册中断回调（不重复配置 GPIO） */
-    if (!oop_gpio_irq_register(port, pin, ir_gpio_callback, NULL,
-                               OOP_GPIO_EDGE_BOTH, 0, OOP_GPIO_IRQ_LEVEL_ANY)) {
-        SYS_LOG("IR_Receiver: IRQ register FAIL");
+    if ((rx == NULL) || (cfg == NULL) || (cfg->htim == NULL) ||
+        (cfg->buf == NULL) || (cfg->cap == 0U) || (cfg->clk_hz == 0U)) {
         return false;
     }
 
-    s_enabled = true;
+    rx->htim        = cfg->htim;
+    rx->channel     = cfg->channel;
+    rx->clk_hz      = cfg->clk_hz;
+    rx->buf         = cfg->buf;
+    rx->cap         = cfg->cap;
+    rx->idle_us     = (cfg->idle_us == 0U)     ? IR_RECEIVER_DEFAULT_IDLE_US     : cfg->idle_us;
+    rx->debounce_us = (cfg->debounce_us == 0U) ? IR_RECEIVER_DEFAULT_DEBOUNCE_US : cfg->debounce_us;
 
-    /* 启动注入的 TIM（1ms 节拍）用于静默收尾。
-     * TIM 由 CubeMX 配置好 1ms 参数，其更新中断里调用 IR_Receiver_Tick1ms；
-     * SDK 只负责启动/停止，不记录具体定时器实例。 */
-    if (!oop_tim_base_start_it(s_htim)) {
-        SYS_LOG("IR_Receiver: TIM start FAIL");
-    }
-
-    uint8_t level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
-    SYS_LOG("IR_Receiver: Init OK, pin level=%u (idle should be 1)", level);
+    rx->len     = 0U;
+    rx->state   = (uint8_t)IR_RECEIVER_IDLE;
+    rx->primed  = 0U;
+    rx->last_ts = 0U;
+    /* 提前回读模数，使字段在 start() 之前即有效（start() 会再读一次并夹 idle） */
+    rx->modulo  = oop_tim_period_get(rx->htim) + 1U;
 
     return true;
 }
 
-void IR_Receiver_DeInit(void)
+bool ir_receiver_start(ir_receiver_t *rx)
 {
-    s_enabled = false;
-    if (s_htim != NULL) {
-        oop_tim_base_stop_it(s_htim);
-    }
-    oop_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
-    SYS_LOG("IR_Receiver: DeInit");
-}
-
-void IR_Receiver_Enable(bool enable)
-{
-    s_enabled = enable;
-    oop_gpio_irq_enable(s_ir_dev.pin.port, s_ir_dev.pin.pin, enable);
-    SYS_LOG("IR_Receiver: %s", enable ? "Enabled" : "Disabled");
-}
-
-bool IR_Receiver_Available(void)
-{
-    return s_frame_ready;
-}
-
-bool IR_Receiver_GetRaw(ir_raw_frame_t *frame)
-{
-    if (!s_frame_ready || frame == NULL) {
+    if ((rx == NULL) || (rx->htim == NULL)) {
         return false;
     }
 
-    __disable_irq();
-    memcpy(frame, &s_raw, sizeof(ir_raw_frame_t));
-    s_frame_ready     = false;
-    s_edge_cnt        = 0;
-    s_last_edge_cycle = 0;  /* 复位，让下一个边沿走“首边沿”分支重新建立计时 */
-    s_last_level      = 1;
-    __enable_irq();
+    /* 防御性停止：HAL_TIM_IC_Start_IT() 成功会把通道状态置 BUSY；
+       若未先 Stop 就再次 Start（例如每帧重启），状态机检查会直接返回 HAL_ERROR。
+       先 Stop 让通道回到 READY，使重复启动幂等（未启动时本就返回错误，忽略即可）。 */
+    (void)oop_tim_ic_stop_it(rx->htim, rx->channel);
 
-    SYS_LOG("IR_Receiver: GetRaw OK, edges=%u, irq_cnt=%lu, frame_cnt=%lu",
-            frame->edges, s_irq_cnt, s_frame_cnt);
-
-    return frame->valid;
-}
-
-void IR_Receiver_RegisterDecoder(ir_protocol_decoder_t decoder)
-{
-    s_decoder = decoder;
-    SYS_LOG("IR_Receiver: Decoder %s", decoder ? "registered" : "cleared");
-}
-
-bool IR_Receiver_Decode(void *result)
-{
-    if (s_decoder == NULL || !s_frame_ready) {
+    /* 从 Falling 起：一体化接收头空闲=高、载波在场=低，故引导 mark 是「高→低」下降沿。
+       首个被 primed 跳过的边沿恰为引导 mark 起点，下一上升沿才开始记时长
+       -> buf[0]=引导 mark、偶数下标=mark，与发射侧「偶数=mark」回放约定一致。
+       （早期误写成 Rising + "空闲为低"，会让引导 mark 被丢、整帧 mark/space 反相。） */
+    if (!oop_tim_ic_init(rx->htim, rx->channel,
+                         TIM_INPUTCHANNELPOLARITY_FALLING,
+                         TIM_ICPSC_DIV1, 0U)) {
         return false;
     }
 
-    ir_raw_frame_t frame;
-    if (!IR_Receiver_GetRaw(&frame)) {
+    rx->len     = 0U;
+    rx->primed  = 0U;
+    rx->last_ts = 0U;
+
+    /* 回读计数器模数 = ARR+1，后续所有时间差按模数做环形减法，补偿 16 位定时器回绕，
+       否则回绕边界落在帧内时 `now - last_ts` 会下溢成巨大值，被误判成静默超时把一帧截断。 */
+    rx->modulo = oop_tim_period_get(rx->htim) + 1U;
+
+    /* 受计数器量程限制，可测静默上限约「模数的一半」(16bit@1MHz -> 约 32ms)。
+       超过此值的段间间隔不应靠抬 idle_us 解决，而应在任务层做多段序列记录。 */
+    {
+        uint32_t max_idle = rx->modulo / 2U;
+        if (rx->idle_us > max_idle) {
+            rx->idle_us = max_idle;
+        }
+    }
+
+    rx->state = (uint8_t)IR_RECEIVER_BUSY;
+
+    if (!oop_tim_ic_start_it(rx->htim, rx->channel)) {
+        rx->state = (uint8_t)IR_RECEIVER_IDLE;
+        return false;
+    }
+    return true;
+}
+
+void ir_receiver_stop(ir_receiver_t *rx)
+{
+    if ((rx == NULL) || (rx->htim == NULL)) {
+        return;
+    }
+    (void)oop_tim_ic_stop_it(rx->htim, rx->channel);
+    if (rx->state == (uint8_t)IR_RECEIVER_BUSY) {
+        rx->state = (uint8_t)IR_RECEIVER_IDLE;
+    }
+}
+
+bool ir_receiver_process(ir_receiver_t *rx)
+{
+    if ((rx == NULL) || (rx->state != (uint8_t)IR_RECEIVER_BUSY) || (!rx->primed)) {
         return false;
     }
 
-    bool ok = s_decoder(&frame, result);
-    SYS_LOG("IR_Receiver: Decode %s", ok ? "OK" : "FAIL");
-    return ok;
+    uint32_t now     = oop_tim_counter_get(rx->htim);
+    uint32_t elapsed = (now - rx->last_ts) % rx->modulo;   /* 环形减法补偿回绕 */
+
+    if (elapsed > ir_receiver_us_to_cnt(rx, rx->idle_us)) {
+        /* 静默超时 -> 认为一帧结束。停掉捕获，防止半截数据继续写入。 */
+        (void)oop_tim_ic_stop_it(rx->htim, rx->channel);
+        rx->state = (uint8_t)IR_RECEIVER_DONE;
+        return true;
+    }
+    return false;
 }
 
-void IR_Receiver_PrintRaw(const ir_raw_frame_t *frame)
+void ir_receiver_isr(ir_receiver_t *rx)
 {
-    if (frame == NULL || !frame->valid) {
-        SYS_LOG("IR_Receiver: PrintRaw invalid frame");
+    if ((rx == NULL) || (rx->htim == NULL)) {
         return;
     }
 
-    SYS_LOG("IR RAW: edges=%u, start_level=%u, irq_total=%lu, frame_total=%lu",
-            frame->edges, frame->level_start, s_irq_cnt, s_frame_cnt);
+    /* 先无条件读一次 CCR（同时清中断标志），再判断是否要记录 */
+    uint32_t now = oop_tim_ic_read_capture(rx->htim, rx->channel);
 
-    for (uint16_t i = 0; i < frame->edges; i++) {
-        SYS_LOG("  [%02u] %u us", i, frame->timing_us[i]);
+    if (rx->state != (uint8_t)IR_RECEIVER_BUSY) {
+        return;
     }
-    SYS_LOG("IR RAW end -------------------");
+
+    /* 翻转极性，准备捕获下一个（反向）边沿 —— 软件模拟双沿 */
+    oop_tim_ic_toggle_polarity(rx->htim, rx->channel);
+
+    if (!rx->primed) {
+        /* 第一个边沿只作为时基基准，不产生时长条目 */
+        rx->primed  = 1U;
+        rx->last_ts = now;
+        return;
+    }
+
+    uint32_t dt = (now - rx->last_ts) % rx->modulo;
+
+    /* 去抖：丢弃死区内的密集毛刺边沿，避免 AGC 饱和时缓冲溢出 */
+    if (dt < ir_receiver_us_to_cnt(rx, rx->debounce_us)) {
+        return;
+    }
+    rx->last_ts = now;
+
+    if (rx->len >= rx->cap) {
+        rx->state = (uint8_t)IR_RECEIVER_OVERFLOW;
+        return;
+    }
+
+    rx->buf[rx->len++] = ir_receiver_cnt_to_us(rx, dt);
 }
 
-/**
- * @brief  打印当前状态（可在任务里周期性调用）
- */
-void IR_Receiver_PrintStatus(void)
-{
-    uint8_t level = 0;
-    if (s_ir_dev.is_initialized) {
-        level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
-    }
+/* ===========================
+ * 查询
+ * =========================== */
 
-    SYS_LOG("IR_Receiver Status: enabled=%d, level=%u, edges=%u, ready=%d, irq=%lu, frame=%lu",
-            s_enabled,
-            level,
-            s_edge_cnt,
-            s_frame_ready,
-            s_irq_cnt,
-            s_frame_cnt);
+ir_receiver_state_t ir_receiver_state(const ir_receiver_t *rx)
+{
+    return (rx == NULL) ? IR_RECEIVER_IDLE : (ir_receiver_state_t)rx->state;
+}
+
+uint16_t ir_receiver_count(const ir_receiver_t *rx)
+{
+    return (rx == NULL) ? 0U : rx->len;
+}
+
+const uint16_t *ir_receiver_data(const ir_receiver_t *rx)
+{
+    return (rx == NULL) ? NULL : rx->buf;
 }

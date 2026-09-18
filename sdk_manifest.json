@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.5.1",
+    "version": "0.6.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -94,12 +94,13 @@
       "name": "oop_tim",
       "layer": "chip",
       "category": "tim",
-      "version": "V1.0",
-      "updated": "2026-08-29",
+      "version": "V1.1",
+      "updated": "2026-09-18",
       "path": "chip/oop_tim",
-      "description": "TIM OOP 驱动封装（PWM 载波 + 通用时基 IT），坐 HAL_TIM_* 之上；device 层（ir_transmitter / ir_receiver）统一走本封装，不直调 HAL_TIM_*。",
+      "description": "TIM OOP 驱动封装（通用时基 / 计数器读写 / 输入捕获 / PWM 载波 / CCR 门控 / 极性），坐 HAL_TIM_* 之上；device 层（ir_receiver / ir_transmitter）统一走本封装，不直调 HAL_TIM_*。",
       "depends": [
-        "chip.platform"
+        "chip.platform",
+        "chip.oop_dma"
       ],
       "backends": [
         "hal"
@@ -154,9 +155,10 @@
       "name": "hal_platform",
       "layer": "chip",
       "category": "porting",
-      "version": "V1.0",
+      "version": "V1.1",
+      "updated": "2026-09-18",
       "path": "chip/platform",
-      "description": "STM32 系列 HAL 统一入口（移植层）。驱动/任务统一 include，换系列只需改编译宏，避免多处改头文件。导出 HAL_PLATFORM_G4 / HAL_PLATFORM_F4 平台宏供功能差异条件编译。",
+      "description": "STM32 系列 HAL 统一入口（移植层）。驱动/任务统一 include，换系列只需改编译宏，避免多处改头文件。已支持 F1 / F4 / G4，导出 HAL_PLATFORM_F1 / _F4 / _G4 平台宏供功能差异条件编译。",
       "depends": [],
       "backends": [
         "hal"
@@ -361,15 +363,13 @@
       "name": "ir_receiver",
       "layer": "devices",
       "category": "ir",
-      "version": "V1.2",
-      "updated": "2026-08-27",
+      "version": "V2.0",
+      "updated": "2026-09-18",
       "path": "devices/ir_receiver",
-      "description": "红外接收驱动（解调输出型接收头，如 VS1838B/HX1838；GPIO 双沿中断 + DWT 打时间戳得到 raw 时长序列，依赖注入的 1ms TIM 节拍做静默收尾）。",
+      "description": "红外接收驱动（解调输出型接收头，如 VS1838B/HX1838）——TIM 输入捕获取硬件时间戳，零抖动；F1 无硬件双沿故用「每边沿翻转极性」软件模拟；时间差按 ARR+1 环形减法补偿回绕。多实例、缓冲区与句柄全注入。",
       "depends": [
-        "chip.oop_dwt",
-        "chip.oop_gpio",
-        "chip.oop_tim",
-        "middleware.SEGGER_RTT"
+        "chip.platform",
+        "chip.oop_tim"
       ],
       "backends": [
         "hal"
@@ -384,16 +384,13 @@
       "name": "ir_transmitter",
       "layer": "devices",
       "category": "ir",
-      "version": "V1.0",
-      "updated": "2026-08-27",
+      "version": "V2.0",
+      "updated": "2026-09-18",
       "path": "devices/ir_transmitter",
-      "description": "红外发射驱动（注入了引脚/定时器/载波参数的 TIM PWM 载波 + DWT 门控，阻塞播放 raw 时长数组）。",
+      "description": "红外发射驱动——TIM 硬件载波常开 + CCR 门控（OCxPE=0 保证直写生效），µs 时基用注入的自由运行 TIM（不用 DWT），带时基冻结死机保护。多实例、阻塞播放 raw 时长数组。",
       "depends": [
         "chip.platform",
-        "chip.oop_dwt",
-        "chip.oop_gpio",
-        "chip.oop_tim",
-        "middleware.SEGGER_RTT"
+        "chip.oop_tim"
       ],
       "backends": [
         "hal"
@@ -893,6 +890,7 @@
     "★ 2026-09-17 入库整理（mcu_hw_1_4 Old/Hardware 迁移）：新增 devices.ch374u（CH374 SPI USB Host 控制器）、devices.ds1302（3 线 RTC）、devices.usb_host（USBH HID 应用适配层）、并补登此前漏登的 devices.ch9434；chip.oop_spi 由单例改为多实例（oop_spi_dev_t，hspi2/hspi3 可并存）。bsp_dwt → chip.oop_dwt、uart_port → chip.oop_uart、heart_beat/lan8720a 沿用既有 SDK 模块，GPIO 引脚表归工程 board_cfg + Tasks，均不入 SDK。CubeMX 生成文件（usbh_conf.c / usbh_platform.c / usb_host.c 等）一律不进 SDK，其手工修复记录在 library/devices/usb_host/readme.md 与 library/devices/ch374u/readme.md。",
     "★ 2026-09-17 修正（SDK 收纳边界）：SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不引入 CubeMX 生成的厂商库。故撤除 middleware.usbh（ST USB Host Library 是 CubeMX 的 Middlewares 组件，工程侧已由 CubeMX 生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号）；devices.usb_host 的依赖改为 external:usbh —— 声明「由宿主工程提供」，与 protocols.wol 的 external:lwip 同构，只保留应用适配层。usbh_core.c 的「跳过 SET_WAKEUP_FEATURE」修复属 CubeMX 生成文件的手工修复，须保留在工程侧 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c，不在 SDK 内。另：移除时发现本机 git rm -r <dir> 会连带删除同层其它工作区文件，改目录请走文件系统删除 + git add -A。",
     "★ 2026-09-18 入库 devices.ws1850s（V1.0，异步版）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。原工程 rfid-driver 有「阻塞等待（mcu-main，TIM6_Delay_ms 忙等）」与「异步状态机（mcu-dev）」两版，本次仅按异步逻辑迁入 SDK：uart_drv_t* 注入 + ws1850s_process() 拉取收包 + 回调（result/card/state），全程不阻塞，与 devices.hlk_rm58s 同构。帧解析忠实移植原 demo（cmd 应答/主动读卡帧字段），未上板实测，首次使用请结合 RTT 日志校验帧字段。",
-    "★ 2026-09-18 改名（去芯片名 / 补全长名）：devices.ir_1838b → devices.ir_receiver（1838B 只是解调输出型接收头的一个型号，模块不绑定芯片），devices.ir_tx → devices.ir_transmitter（tx 过短且与 receiver 不成对）。符号同步：IR1838B_* → IR_Receiver_*、IR_TX_* → IR_Transmitter_*、ir_tx_cfg_t → ir_transmitter_cfg_t；文件/守卫/全库引用（manual 的 sdk.toml 与 board_cfg 模板、sync_lib.py、oop_tim 与 ac_codec 注释）一并更新。同时修正 ir_receiver 描述——原写「基于定时器输入捕获」与实现不符，实为 GPIO 双沿中断 + DWT 打时间戳。"
+    "★ 2026-09-18 改名（去芯片名 / 补全长名）：devices.ir_1838b → devices.ir_receiver（1838B 只是解调输出型接收头的一个型号，模块不绑定芯片），devices.ir_tx → devices.ir_transmitter（tx 过短且与 receiver 不成对）。符号同步：IR1838B_* → IR_Receiver_*、IR_TX_* → IR_Transmitter_*、ir_tx_cfg_t → ir_transmitter_cfg_t；文件/守卫/全库引用（manual 的 sdk.toml 与 board_cfg 模板、sync_lib.py、oop_tim 与 ac_codec 注释）一并更新。同时修正 ir_receiver 描述——原写「基于定时器输入捕获」与实现不符，实为 GPIO 双沿中断 + DWT 打时间戳。",
+    "★ 2026-09-18 IR 收发改为工程侧稳定方案（输入捕获 + CCR 门控），模块升 V2.0：ir_receiver 由「GPIO EXTI + DWT 打时间戳 + 1ms TIM 收尾」改为 TIM 输入捕获（硬件锁存，零抖动；F1 无硬件双沿故在 ISR 内翻转 CCxP 软件模拟；时间差按 ARR+1 环形减法补偿 16 位回绕；200us 去抖滤 AGC 饱和毛刺；帧结束由 process() 轮询判定），并去掉不可达的 TIMEOUT/mute 路径。ir_transmitter 由「DWT 微秒延时 + 每段 Start/Stop PWM」改为「载波常开 + CCR 门控」（OCxPE=0 时单次寄存器写即生效，避免最坏一个载波周期的抖动）+ µs 时基改用注入的自由运行 TIM（工程实测部分 F1 板 DWT CYCCNT 不可靠：自检偶发通过、发码时冻结），并加时基冻结死机保护 + init 探测。两模块依赖收敛为 chip.platform + chip.oop_tim（不再用 oop_gpio/oop_dwt/SEGGER_RTT），公开 API 由全局单例改为多实例 init/start/stop/process/send。另：chip.platform 补上 STM32F1 分支（此前只有 F4/G4，F103 工程无法编译）；chip.oop_tim 的 depends 补上 chip.oop_dma（oop_tim_drv.c 直连 oop_dma_drv.h，此前漏声明导致按依赖闭包拉取时会缺文件）。"
   ]
 }

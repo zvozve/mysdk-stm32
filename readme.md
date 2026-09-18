@@ -125,7 +125,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 ### 4. 增删模块
 
 - **加**：在 `[modules]` 加 `"<layer>.<name>" = true`，闭包自动补全（如选
-  `devices.ir_transmitter` 会自动带入 `chip.oop_gpio/chip.oop_tim/chip.platform/middleware.SEGGER_RTT`）。重跑 sync。
+  `devices.ir_transmitter` 会自动带入 `chip.oop_tim/chip.oop_dma/chip.platform`）。重跑 sync。
 - **删**：把对应行改成 `= false`（或删行），重跑 sync 会按新闭包重新镜像。
 - **查可用模块 id**：看 `sdk_manifest.json` 的 `modules[].id`。
 
@@ -140,7 +140,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 - **LwIP 接入完整避坑清单（CubeMX DNS / RTOS 任务栈 512×4 / MicroLIB / PHY 9 脚电源 / 晶振 / LED 检查）**：见 `library/devices/lan8720a/readme.md`。
 - **OLED 驱动（oled12864）文本/字模用法**：字模由用户按 `oled_font_t` 注入 + `OLED_RegisterFont` 注册，再 `OLED_DrawString` 显示；驱动不内置字库，详见 `library/devices/oled12864/readme.md`。
 - **RFID 读卡（ws1850s）异步用法**：`uart_drv_t*` 注入 + 周期调用 `ws1850s_process()`（拉取收包/状态机），卡片/结果经 `card_cb`/`result_cb` 回调上抛，全程不阻塞；详见 `library/devices/ws1850s/readme.md`。
-- **IR 收发（`ir_receiver` / `ir_transmitter`）的 TIM 配置依赖**：`ir_receiver` = 一个**任意 GPIO 的 EXTI 双沿中断**（接解调接收头 OUT，空闲高）+ 一个**1ms 更新中断 TIM**（CubeMX 里使能其 NVIC，并在其 ISR 内调 `IR_Receiver_Tick1ms()` 做静默收尾）；`ir_transmitter` = **一路 TIM PWM 通道**，PSC/ARR/CCR 由 `ir_transmitter_cfg_t` 注入并覆写。两者时序基准均为 `oop_dwt`（DWT CYCCNT）。
+- **IR 收发（`ir_receiver` / `ir_transmitter`）的 TIM 配置依赖**：`ir_receiver` = **一路通用定时器配成 Input Capture**（通道须接到解调接收头 OUT；1MHz 计数、ARR 取满量程、使能 NVIC），在 `HAL_TIM_IC_CaptureCallback()` 里转调 `ir_receiver_isr()`；`ir_transmitter` = **一路 TIM PWM 通道**（载波，ARR/CCR 由 cfg 覆写）+ **另一路空闲 TIM 作 µs 时基**（自由运行 1MHz，无引脚、无中断）。**不用 DWT**——工程侧实测部分 F1 板 CYCCNT 不可靠（自检偶发通过、发码时却冻结）。两个模块都是**多实例**（实例 + cfg 注入），详见各自 `readme.md`。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
@@ -151,6 +151,13 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   **task.json 与 sdk_run.py 都不硬编码 SDK 路径**；换 SDK 目录只改 `sdk.toml` 的 `sdk = "..."` 一行。
 
 ## 版本变更记录
+
+### IR 收发升 V2.0（2026-09-18）— 取工程侧稳定方案：输入捕获 + CCR 门控
+
+- `ir_receiver` V1.2 → **V2.0**：时间戳由「GPIO EXTI + DWT 软件计时」改为 **TIM 输入捕获**（硬件在跳变时刻锁存 CCR，抖动为 0）；F1 通用定时器无硬件双沿，故在 ISR 内翻转 `CCxP` 用软件模拟双沿；时间差按 `ARR+1` 做环形减法补偿 16 位回绕；200µs 去抖滤掉 AGC 饱和产生的亚载波毛刺；帧结束改由 `ir_receiver_process()` 轮询判定（不再需要 1ms TIM 中断收尾）。顺带删掉不可达的 `TIMEOUT` 状态与 `mute` 路径（死代码）。
+- `ir_transmitter` V1.0 → **V2.0**：载波由「每段 Start/Stop PWM」改为 **常开 + CCR 门控**（`OCxPE=0` 下单次寄存器写即生效，避免最坏一个载波周期 26µs 的抖动）；µs 时基由 DWT 改为**注入的自由运行 TIM**，并加「init 探测时基是否真在计数」+「等待循环时基冻结保护」（判废并置 `ready=false`，绝不挂死主循环）。
+- 两模块公开 API 从**全局单例**改为**多实例**：`ir_receiver_init/start/stop/process/isr`、`ir_transmitter_init/send/mark/space/set_*`，句柄/通道/时钟/缓冲区全部注入；依赖收敛为 `chip.platform + chip.oop_tim`（不再需要 `oop_gpio`/`oop_dwt`/`SEGGER_RTT`）。
+- 配套：`chip.oop_tim` V1.1 增补输入捕获（`ic_init/start_it/stop_it/read_capture/toggle_polarity`）、计数器/周期读写与更新事件、CCR 直写/极性/关预装载原语；`chip.platform` V1.1 补上 **STM32F1 分支**（此前只有 F4/G4，F103 工程编译不过）。SDK 版本 0.5.1 → 0.6.0。
 
 ### IR 模块改名（2026-09-18）— ir_1838b → ir_receiver、ir_tx → ir_transmitter
 
