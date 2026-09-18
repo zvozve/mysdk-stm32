@@ -408,7 +408,7 @@
       "name": "lan8720a",
       "layer": "devices",
       "category": "eth_phy",
-      "version": null,
+      "version": "V1.0",
       "path": "devices/lan8720a",
       "description": "LAN8720A 以太网 PHY 硬件复位（板级 glue，PHY 属板载外挂芯片；LWIP 栈留 CubeMX Middlewares）。",
       "depends": [

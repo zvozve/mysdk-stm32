@@ -3,6 +3,7 @@
   ******************************************************************************
   * @file           : lan8720a_reset.c
   * @brief          : Ethernet PHY hardware reset routine
+ * @version        : V1.0
   ******************************************************************************
   */
 /* USER CODE END Header */
@@ -34,5 +35,5 @@ void ETH_RST_Execute(void)
   oop_gpio_write(&eth_rst_io, true);
   lan_delay_ms(50);
 
-  SYS_LOG("LAN8720A Reset Done!");
+  SYS_LOG("LAN8720A reset ok");
 }
