@@ -235,6 +235,11 @@ static int src_read(void *ctx, void *buf, uint32_t len, uint32_t *got)
         if (u->pkt_len != 0u) {
             continue;                    /* 拿到包了，下一轮取走 */
         }
+        /* 这段阻塞里唯一的喂狗 / 节流 / 中止机会（板上有看门狗就必须设这个钩子） */
+        if (u->idle != NULL && u->idle(u->idle_user) != 0) {
+            u->err = (int8_t)OTA_ERR_SOURCE;
+            break;
+        }
         if ((uint32_t)(u->tick(u->tick_ctx) - t0) >= u->poll_timeout_ms) {
             break;                       /* 等太久了 */
         }
@@ -312,6 +317,15 @@ void ota_src_uart_set_poll_timeout(ota_src_uart_t *u, uint16_t ms)
     if (u != NULL && ms != 0u) {
         u->poll_timeout_ms = ms;
     }
+}
+
+void ota_src_uart_set_idle_cb(ota_src_uart_t *u, ota_src_uart_idle_cb cb, void *user)
+{
+    if (u == NULL) {
+        return;
+    }
+    u->idle      = cb;
+    u->idle_user = user;
 }
 
 const char *ota_src_uart_state(const ota_src_uart_t *u)

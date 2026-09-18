@@ -39,6 +39,14 @@ extern "C" {
 /** @brief 默认单次 read 的最长阻塞（毫秒） */
 #define OTA_SRC_UART_DEF_POLL_MS   2000u
 
+/**
+ * @brief 等待数据期间的空闲回调（喂狗 / 让出 CPU / 请求中止）
+ * @return 非 0 = 请求中止本次 read（read 将以 OTA_ERR_SOURCE 失败）
+ * @note  单次 read 最长阻塞 poll_timeout_ms，这个回调是这段阻塞里**唯一**的
+ *        喂狗 / 让出 CPU 机会 —— 板上有看门狗就必须设。
+ */
+typedef int (*ota_src_uart_idle_cb)(void *user);
+
 typedef struct {
     /* 对外接口（用 ota_src_uart_source() 取） */
     ota_source_t   src;
@@ -60,6 +68,9 @@ typedef struct {
 
     ota_src_info_t info;
     uint16_t       poll_timeout_ms;
+
+    ota_src_uart_idle_cb idle;      /*!< 等包期间的钩子（喂狗/节流/中止）；可 NULL */
+    void                *idle_user;
 
     uint8_t        opened;
     uint8_t        finished;
@@ -85,6 +96,14 @@ ota_source_t *ota_src_uart_source(ota_src_uart_t *u);
 
 /** @brief 调整单次 read 的最长阻塞；0 = 不改（默认 2000 ms） */
 void ota_src_uart_set_poll_timeout(ota_src_uart_t *u, uint16_t ms);
+
+/**
+ * @brief 注册「等包期间」的空闲钩子
+ * @param  cb   回调（见类型注释）；NULL = 不设（板子没看门狗时可以）
+ * @note   推荐实现：喂狗 + `vTaskDelay(1)`（既喂狗又节流，还避免同优先级任务饿死）。
+ *         返回非 0 会让正在进行的 read 立即失败。
+ */
+void ota_src_uart_set_idle_cb(ota_src_uart_t *u, ota_src_uart_idle_cb cb, void *user);
 
 /** @brief 调试用：YMODEM 引擎当前状态名 */
 const char *ota_src_uart_state(const ota_src_uart_t *u);

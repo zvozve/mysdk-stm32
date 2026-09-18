@@ -964,7 +964,8 @@
         "services/ota_core/Src/ota_cfg.c",
         "services/ota_core/Src/ota_image.c",
         "services/ota_core/Src/ota_flow.c",
-        "services/ota_core/Src/ota_core.c"
+        "services/ota_core/Src/ota_core.c",
+        "services/ota_core/Src/ota_source.c"
       ]
     },
     {
