@@ -162,10 +162,19 @@ static void start_rx(uart_drv_t *drv) {
     drv->state = UART_DRV_IDLE;
     
     if (drv->huart->hdmarx != NULL) {
-        HAL_UARTEx_ReceiveToIdle_DMA(drv->huart, drv->rx_buf, UART_DRV_BUF_SIZE);
+        HAL_StatusTypeDef rc = HAL_UARTEx_ReceiveToIdle_DMA(drv->huart, drv->rx_buf, UART_DRV_BUF_SIZE);
+        if (rc != HAL_OK) {
+            /* ★ 静默死锁陷阱（2026-09-18）：HAL_UARTEx_ReceiveToIdle_DMA 只在
+             *   ReceptionType 最终为 TOIDLE 时才打开 USART_CR1_IDLEIE；一旦这里返回
+             *   非 HAL_OK（最常见是 huart->RxState 不是 READY），接收等于没武装——
+             *   现象是「一个字节都收不到，且全流程无任何报错」。必须报出来。★ */
+            UART_LOG("%s RX arm FAILED rc=%d (RxState=0x%X) -> 收不到任何数据",
+                     uart_drv_get_name(drv->huart), (int)rc, (unsigned)drv->huart->RxState);
+        }
     } else {
-        // HAL_UART_Receive_IT(drv->huart, drv->rx_buf, UART_DRV_BUF_SIZE);
-    }    
+        UART_LOG("%s 无 DMA（hdmarx=NULL）-> 未启动接收（IT 分支未启用）",
+                 uart_drv_get_name(drv->huart));
+    }
 }
 
 // ===========================
@@ -190,6 +199,14 @@ void uart_drv_init(uart_drv_t *drv, UART_HandleTypeDef *huart, uart_rs485_t *rs4
     
     rs485_rx_enable(drv);
     start_rx(drv);
+
+    /* 一行讲清「这一路到底武装好了没」：baud 来自 CubeMX 生成代码（不是 board_cfg），
+       RxState=BUSY_RX 才说明 ReceiveToIdle_DMA 真的在跑（否则收不到任何数据）。 */
+    UART_LOG("%s init: baud=%lu, dmarx=%s, rx_armed=%s, buf=%u",
+             uart_drv_get_name(huart), (unsigned long)huart->Init.BaudRate,
+             (huart->hdmarx != NULL) ? "yes" : "no",
+             (huart->RxState == HAL_UART_STATE_BUSY_RX) ? "yes" : "no",
+             (unsigned)UART_DRV_BUF_SIZE);
 }
 
 int uart_drv_reconfig(uart_drv_t *drv, const uart_drv_cfg_t *cfg) {
@@ -407,6 +424,9 @@ void uart_drv_on_idle(UART_HandleTypeDef *huart) {
     }
     
     if (drv->rx_len > 0) {
+        /* 收到多少字节才算「物理链路通了」的唯一硬证据（DMA+IDLE 已提交一帧） */
+        UART_LOG("%s frame %u B", uart_drv_get_name(huart), (unsigned)drv->rx_len);
+
         // 7 位数据模拟：先把 8N1 收下的字节还原为 7 位数据并软件校验
         if (drv->emulate_7bit) {
             uint8_t pe = 0;
@@ -435,7 +455,16 @@ void uart_drv_on_idle(UART_HandleTypeDef *huart) {
 void uart_drv_on_error(UART_HandleTypeDef *huart) {
     uart_drv_t *drv = uart_drv_find(huart);
     if (drv == NULL) return;
-    
+
+    /* 原来这里完全静默：线缆噪声/波特率不匹配/收发器悬空造成的 ORE/FE/NE 都看不到。
+       PE=校验错 FE=帧错(停止位/波特率不对) NE=噪声 ORE=溢出(来不及取走) */
+    UART_LOG("%s RX ERROR code=0x%X (PE=%d FE=%d NE=%d ORE=%d) -> reset",
+             uart_drv_get_name(huart), (unsigned)huart->ErrorCode,
+             (huart->ErrorCode & HAL_UART_ERROR_PE)  ? 1 : 0,
+             (huart->ErrorCode & HAL_UART_ERROR_FE)  ? 1 : 0,
+             (huart->ErrorCode & HAL_UART_ERROR_NE)  ? 1 : 0,
+             (huart->ErrorCode & HAL_UART_ERROR_ORE) ? 1 : 0);
+
     drv->state = UART_DRV_ERROR;
     if (drv->on_error) drv->on_error(drv);
     

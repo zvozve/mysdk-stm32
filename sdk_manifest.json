@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.10.0",
+    "version": "0.11.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -1030,6 +1030,64 @@
         "services/bootloader/Src/boot_activate.c",
         "services/bootloader/Src/boot_health.c"
       ]
+    },
+    {
+      "id": "protocols.ymodem",
+      "name": "ymodem",
+      "layer": "protocols",
+      "category": "transfer",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "protocols/ymodem",
+      "description": "YMODEM 收发引擎（非阻塞状态机，零硬件依赖）。参考工程 refe/Ymodem-master(=STM32F0xx_IAP) 与 refe/F407ZG 的 YMODEM 都是阻塞实现（在一个函数里死等包头、死等 ACK、收完整个文件才返回），装进带协议栈/带任务的 APP 会让看门狗先咬人，故整体重写为「调用方反复 process，每次只吃掉已到达的字节」。收字节/发字节/时基全部注入（ymodem_io_t），因此本模块可在 PC 上跑：单测把收发两个引擎通过内存通道对接，注入 ACK 整包丢失→去重、噪声→NAK→重传、头包拒收→CAN、空文件等场景。协议要点：SOH 恒配 128 / STX 恒配 1024（build_frame 拒绝其它长度——拿 SOH 发 1024 会让整包错位而 CRC 仍能过）；序号 0 是头包、255→0 回绕；重复包必须重新 ACK 但绝不重复写数据；EOT→ACK→空第 0 包→ACK 才算结束；超时重发的是上一次的响应而不是无脑 NAK。两处刻意宽容：EOT 一律 ACK（兼容 XMODEM 风格对端）、结束阶段没收到空第 0 包就再收到 EOT 也认为结束（兼容 server/ota_ymodem.py 那类连发两次 EOT 的脚本）。内部约定：recv_process 一次只处理一个完整帧就返回，保证 on_data 拿到的指针活到下一次调用之前。on_header 在回 ACK 之前触发，是「放不下就别开始收」的唯一机会。",
+      "depends": [],
+      "backends": [],
+      "files": [
+        "protocols/ymodem/Inc/ymodem.h",
+        "protocols/ymodem/Src/ymodem.c"
+      ]
+    },
+    {
+      "id": "services.ota",
+      "name": "ota",
+      "layer": "services",
+      "category": "ota",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "services/ota",
+      "description": "OTA 的 APP 外壳（P3）：早期 VTOR / 启动升级 / 非阻塞步进 / 自检确认 / 软复位。只是 ota_flow 外面的一层壳，补齐「我在哪个槽」「下载完怎么重启」「自检通过怎么确认」这三件只有 APP 知道的事。★ 关键决定：VTOR 用**编译期基址**（-DOTA_SELF_BASE）而不是状态区的 run_slot —— 「我在哪个槽」是链接期就确定的事实，而状态区可能写失败；两槽是同一份源码的两次链接、向量表内容几乎一样，拿过期的 run_slot 设 VTOR 不会崩，只会安静地跑错 handler，这正是最该避免的一类故障。ota_app_early_init() 只做设 VTOR + 开中断两件事（不碰外设/时钟/Flash），所以能在 HAL_Init() 之前作为 main 第一行执行；开中断是兜底（BL 跳转时已 cpsie i，但调试器改 PC 等方式进来时不会）。ota_app_confirm() 固化 active_slot/trial_slot/boot_try 并清 factory_flag；ota_app_set_health_cb + ota_app_trial_check 提供「自检通过就自动确认」的便利入口。回滚逻辑全在 BL，APP 不需要知道。",
+      "depends": [
+        "services.ota_core",
+        "chip.oop_boot"
+      ],
+      "backends": [],
+      "files": [
+        "services/ota/Inc/ota_app.h",
+        "services/ota/Src/ota_app.c"
+      ]
+    },
+    {
+      "id": "services.ota_src_uart",
+      "name": "ota_src_uart",
+      "layer": "services",
+      "category": "ota",
+      "version": "V1.0",
+      "updated": "2026-09-18",
+      "path": "services/ota_src_uart",
+      "description": "取数后端：串口 YMODEM（把 uart_drv_t + protocols.ymodem 适配成 ota_source_t）。通道按模块拆而非一个模块里 #ifdef —— 拉取粒度是目录，只有拆开才能做到「选了 uart 就完全不引入 lwip/fatfs 依赖」。一个 YMODEM 帧（最多 1029 字节）会跨好几个 UART 空闲包，本模块用 rx_off/rx_len 逐字节续读、读完才 release_packet（所以不要绕过它去直接 get_packet，会把驱动的包锁弄乱）。★ 工程侧两个前提：① chip.oop_uart 的 UART_DRV_BUF_SIZE 必须 ≥1029（1K 帧长），否则 DMA 覆盖未取走的字节，表现为「随机某包 CRC 错、重传几次又过」；该宏已加 #ifndef 守卫，用 -DUART_DRV_BUF_SIZE=1088 覆盖（每实例多占 ~1.7KB RAM）。② 单次 read() 阻塞上限 = poll_timeout_ms（默认 2000ms，流式源固有属性），看门狗超时必须大于它；已拿到的字节立刻返回（不攒满再给），故正常传输时单次阻塞 ≈ 一个包（115200 下 1KB ≈ 90ms）。头包处用 on_header（ACK 之前）以 ota_core_image_max() 拦一次「明显放不下」。是流式源：seek==NULL，串口场景建议打单段包。",
+      "depends": [
+        "services.ota_core",
+        "protocols.ymodem",
+        "chip.oop_uart",
+        "chip.oop_dwt"
+      ],
+      "backends": [
+        "chip.oop_uart"
+      ],
+      "files": [
+        "services/ota_src_uart/Inc/ota_src_uart.h",
+        "services/ota_src_uart/Src/ota_src_uart.c"
+      ]
     }
   ],
   "notes": [
@@ -1053,6 +1111,7 @@
     "★ 2026-09-18 新增 protocols.cli（V1.0）：串口命令行核心。来源是 ir-demo-stm32 工程的 User/Src/uart_cli.c——那份代码里硬编码了 6 条命令的 if-else 链，但真正难得的是防回显自激的四道闸（它们是在真实链路上逐条踩出来的：一次 poll 只执行一条 / 执行后 flush RX / 同名命令去抖窗口 / 未知行静默丢弃只限速上报，否则报错被回显再解析会自激刷屏）。故把「命令表 + 行解析 + 四道门」抽成模块，业务模块自带 xxx_cli_cmds[]，app 侧只做聚合注册。与旧实现的此意图差异：参数改用空白分隔（txcar 38000，旧实现把空白全删成 TXCAR38000，且 T X 会命中 TX）；仅命令名大小写不敏感、参数原样保留（避免将来 wifi <SSID> 这类参数被转大写）；数字解析加溢出检查。依赖仅 chip.oop_dwt（去抖/限速的时基），不碰 HAL。首批用户回灌验证：ir-demo-stm32 的 6 条命令（status/txpol/txcar/txn/txmod/tx）。",
     "★ 2026-09-18 新增 services 层与两个 flash 模块（v0.8.0）：chip.oop_flash（内部 Flash，HAL_FLASH_* 唯一入口；F1/F4/G4 三系列几何内置，三系列各编过零警告；双 Bank F4 编译期 #error，G4 未上板验证）+ devices.spi_nor_flash（通用 SPI NOR，坐 oop_spi/oop_gpio/oop_dwt，阻塞单位操作 + idle_cb 喂狗）。tools/oop_audit.py 的扫描范围加入 library/services（新层同样禁止直调 HAL）。同时为 OTA 方案铺路：services.ota_core / services.bootloader / services.ota / protocols.ymodem 待建，清单见 todo.md；方案文档在 ota-demo-stm32/doc/01~06。",
     "★ 2026-09-18 新增 services.ota_core + services.ota_src_mem（v0.9.0，P1）：OTA 共用底座与内存取数后端。底座含 ota_common/crc32/flash/area/cfg/image/source/flow/core 九个头；中心设计是「A/B 切换与单槽搬运合一」（分区表 RUN 数量 + pending_action 字段）、「非阻塞步进式流程」（每步一块 / 一个擦除单位，便于喂狗与取消）、「第 2 关（内存 CRC）与第 3 关（读回 CRC）分开」。同时新增 tools/ota_pack.py（bin -> .otapkg，含产物自校验），manual/sdk_run.py 加 pack 子命令。验证：8 个源文件在 F4 下 -Wall -Wextra -Wpedantic 零警告；ota_pack 打包往返 22 项头部字节布局核对全过（含 4 字节对齐填充）。待建：services.bootloader（P2）、protocols.ymodem + services.ota + services.ota_src_uart（P3）。",
-    "★ 2026-09-18 新增 chip.oop_boot + services.bootloader（v0.10.0，P2）：BL 外壳落地。chip.oop_boot 是跳转（VTOR/MSP/NVIC/SysTick + HAL_DeInit）—— 放 chip 层是因为 HAL 红线（services 层不许出现 HAL 符号）；跳转用 naked 汇编函数完成（SP 合法性检查必须在 __set_MSP() 之前，换栈后不能再调 C 函数），向量表判据 = SP 落 SRAM 且 4 字节对齐 + PC 的 Thumb 位。services.bootloader 是决策状态机（CFG→ACTIVATE→HEALTH→VERIFY→READY/RESCUE），非阻塞步进；试运行计数必须落盘否则回滚失效；已确认态正常开机零擦写；MOVE 靠「暂存区只读」+「按擦除单位记断点」实现断电幂等；boot_init 把 oop_flash 安全闸收窄为 [BOOT 区末尾, Flash 末尾)，擦不到 BL 自己。验证：4 个源文件 × F1/F4/G4 共 12 个组合零警告；boot_health 纯逻辑在 PC 上用 host gcc 跑通 22 项断言（含 max_try 边界、回滚后稳态零写、越界兜底）。待建：protocols.ymodem + services.ota + services.ota_src_uart（P3）。"
+    "★ 2026-09-18 新增 chip.oop_boot + services.bootloader（v0.10.0，P2）：BL 外壳落地。chip.oop_boot 是跳转（VTOR/MSP/NVIC/SysTick + HAL_DeInit）—— 放 chip 层是因为 HAL 红线（services 层不许出现 HAL 符号）；跳转用 naked 汇编函数完成（SP 合法性检查必须在 __set_MSP() 之前，换栈后不能再调 C 函数），向量表判据 = SP 落 SRAM 且 4 字节对齐 + PC 的 Thumb 位。services.bootloader 是决策状态机（CFG→ACTIVATE→HEALTH→VERIFY→READY/RESCUE），非阻塞步进；试运行计数必须落盘否则回滚失效；已确认态正常开机零擦写；MOVE 靠「暂存区只读」+「按擦除单位记断点」实现断电幂等；boot_init 把 oop_flash 安全闸收窄为 [BOOT 区末尾, Flash 末尾)，擦不到 BL 自己。验证：4 个源文件 × F1/F4/G4 共 12 个组合零警告；boot_health 纯逻辑在 PC 上用 host gcc 跑通 22 项断言（含 max_try 边界、回滚后稳态零写、越界兜底）。待建：protocols.ymodem + services.ota + services.ota_src_uart（P3）。",
+    "★ 2026-09-18 新增 protocols.ymodem + services.ota + services.ota_src_uart（v0.11.0，P3）：APP 侧升级链路打通。protocols.ymodem 重写为**非阻塞状态机**（参考实现是阻塞版，装进带协议栈的 APP 会让看门狗先咬人），且**零硬件依赖**（收字节/发字节/时基全注入）→ 可在 PC 上把收发两引擎通过内存通道对接跑端到端测试（ACK 整包丢失→去重 / 噪声→NAK→重传 / 头包拒收→CAN / 空文件，共 7 组 + 帧工具 9 项）。内部约定：recv_process 一次只处理一帧就返回，保证 on_data 的指针活到下一次调用。services.ota 是 APP 外壳：early_init 设 VTOR（**用编译期 -DOTA_SELF_BASE 而非状态区的 run_slot** —— 两槽是同一份源码两次链接，拿过期 run_slot 设 VTOR 不会崩、只会安静地跑错 handler）、start/process 非阻塞、confirm 固化、trial_check+health_cb 自动确认、reboot 交回 BL。services.ota_src_uart 把 uart_drv+ymodem 适配成 ota_source_t。**工程侧两个前提**：① UART_DRV_BUF_SIZE 必须 ≥1029（1K 帧），已给该宏加 #ifndef 守卫供 -D 覆盖；② 单次 read 阻塞上限 = poll_timeout_ms（默认 2000ms），看门狗超时要大于它。另：chip.oop_boot 补 oop_boot_system_reset()（让 services 层不出现 CMSIS 符号）。"
   ]
 }

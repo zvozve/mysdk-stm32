@@ -80,6 +80,13 @@ void oop_boot_periph_deinit(void);
  */
 int oop_boot_jump(uint32_t vector_addr);
 
+/**
+ * @brief  软复位（`NVIC_SystemReset()` + 关中断）
+ * @note   不返回。留给 OTA 完成后的「重启交给 BL 生效」这一步。
+ *         放在本模块是为了让 services 层不必出现 CMSIS 符号。
+ */
+void oop_boot_system_reset(void) __attribute__((noreturn));
+
 #ifdef __cplusplus
 }
 #endif
