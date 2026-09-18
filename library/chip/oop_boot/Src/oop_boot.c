@@ -146,3 +146,16 @@ int oop_boot_jump(uint32_t vector_addr)
     /* 不可达：jump_asm 不返回。留着只为满足函数返回值。 */
     return OOP_BOOT_ERR_PARAM;
 }
+
+/* ---------------- 软复位 ---------------- */
+
+void oop_boot_system_reset(void)
+{
+    __disable_irq();
+    NVIC_SystemReset();
+
+    /* NVIC_SystemReset 的 AIRCR 写入理论上不返回；万一被拦下就停在这儿，
+     * 这比带着半完成的状态继续跑要好。 */
+    for (;;) {
+    }
+}

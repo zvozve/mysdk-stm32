@@ -40,7 +40,14 @@ extern "C" {
 #endif
 #define UART_LOG(fmt, ...)    RTT_LOG_TAG(UART_LOG_ENABLE,   "UART",   fmt, ##__VA_ARGS__)
 
+/* 收发缓冲容量（每实例各一个 rx/tx）。
+ * ⚠ 跑 YMODEM 时必须加大：一个 1024 字节数据包整帧是 1029 字节
+ *   （1 + 1 + 1 + 1024 + 2），256 的默认值会被 DMA 覆盖 → 表现为「包随机 CRC 错」。
+ *   工程侧 `-DUART_DRV_BUF_SIZE=1088` 即可（F407 上每实例多占 ~1.7 KB RAM）。
+ *   只发 128 字节小包（帧长 133）时默认值就够。 */
+#ifndef UART_DRV_BUF_SIZE
 #define UART_DRV_BUF_SIZE   256
+#endif
 
 // ===========================
 // 状态机

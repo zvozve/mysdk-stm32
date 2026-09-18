@@ -14,7 +14,7 @@
 
 ## 版本
 
-- SDK 版本：**0.10.0**（2026-09-18）
+- SDK 版本：**0.11.0**（2026-09-18）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
 - 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -28,9 +28,9 @@ mystm32-sdk/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
 │   │   ├── dht11/ heart_beat/ hlk_rm58s/ ir_receiver/ ir_transmitter/ lan8720a/ oled12864/ led_matrix/ ws1850s/ spi_nor_flash/
 │   ├── protocols/    # 协议 / 算法库
-│   │   ├── ac_codec/ cli/ mqtt/ wol/
+│   │   ├── ac_codec/ cli/ mqtt/ wol/ ymodem/
 │   ├── services/     # 系统服务（板无关，同 devices/protocols 禁止直调 HAL）
-│   │   ├── ota_core/ ota_src_mem/ bootloader/
+│   │   ├── ota_core/ ota_src_mem/ bootloader/ ota/ ota_src_uart/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
@@ -165,6 +165,44 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+### 新增 protocols.ymodem + services.ota + services.ota_src_uart（2026-09-18，v0.11.0）
+
+APP 侧升级链路打通（P3）。方案文档：`ota-demo-stm32/doc/01~06`。
+
+- **新增 `protocols.ymodem`（V1.0）**：YMODEM 收发引擎。参考工程（`refe/Ymodem-master` =
+  STM32F0xx_IAP、`refe/F407ZG/.../YMODEM`）都是**阻塞**实现 —— 在一个函数里死等包头、死等 ACK、
+  收完整个文件才返回。那套写法在独立 BL 里勉强能用，装进带协议栈的 APP 就不行：一次传输几秒到
+  几十秒，期间什么都不干，看门狗会先咬人。这里整体重写为**非阻塞状态机**，且**零硬件依赖**
+  （收字节 / 发字节 / 时基全部注入）。
+  - **因此它能上 PC**：单测把收发两个引擎通过内存通道对接，注入真机上很难复现的场景 ——
+    ACK 整包丢失 → 发送端重发 → **接收端去重**、线路噪声 → NAK → 重传、接收端头包处拒收 → CAN 中止、
+    空文件，共 7 组端到端用例 + 9 项帧工具断言，全过。
+  - 协议易错点都写进了模块 readme：**SOH 恒配 128 / STX 恒配 1024**（拿 SOH 发 1024 会让整包错位，
+    而 CRC 仍能过 —— 异常得很安静）；序号 0 是头包、255→0 回绕；**重复包必须重新 ACK 但绝不重复写数据**；
+    `EOT → ACK → 空第 0 包 → ACK` 才算结束；超时重发的是「上一次的响应」而不是无脑 NAK。
+  - 两处刻意宽容（为兼容不标准的 PC 端）：EOT 一律 ACK；结束阶段没收到空第 0 包就再收到 EOT 也认为结束。
+
+- **新增 `services.ota`（V1.0）**：APP 外壳。`ota_app_early_init()` 设 VTOR + 开中断（只做这两件事，
+  所以能当 `main()` 第一行）、`start/process` 非阻塞步进、`confirm()` 固化、
+  `trial_check()+health_cb` 自动确认、`reboot()` 交回 BL。
+  - ★ **VTOR 用编译期基址（`-DOTA_SELF_BASE`）而不是状态区的 `run_slot`**：「我在哪个槽」是链接期
+    就确定的事实，而状态区**可能写失败**；两个槽是同一份源码的两次链接、向量表内容几乎一样，
+    拿过期的 `run_slot` 设 VTOR **不会崩**，只会安静地跑错 handler —— 这正是最该避免的一类故障。
+  - **回滚逻辑全在 BL**，APP 不需要知道「我跑了几次」「什么时候会被撤回」。
+
+- **新增 `services.ota_src_uart`（V1.0）**：`uart_drv` + `ymodem` → `ota_source_t`。
+  - **工程侧两个前提**（都写进了模块 readme）：
+    ① `UART_DRV_BUF_SIZE` 必须 ≥ 一个 YMODEM 1K 帧（1029 字节），否则 DMA 覆盖还没被取走的字节，
+       现象是「随机某包 CRC 错、重传几次又过」，极难查；该宏已加 `#ifndef` 守卫，
+       用 `-DUART_DRV_BUF_SIZE=1088` 覆盖（F407 上每实例多占 ~1.7 KB RAM）。
+    ② 单次 `read()` 阻塞上限 = `poll_timeout_ms`（默认 2000 ms）—— 流式源的固有属性，
+       **看门狗超时必须大于它**。
+  - 头包处用 `on_header`（在回 ACK **之前**）以 `ota_core_image_max()` 拦一次「明显放不下」。
+
+- **`chip.oop_boot` 补 `oop_boot_system_reset()`**：让 services 层不必出现 CMSIS 符号。
+- **验证**：3 个源 × F1/F4/G4 共 9 个组合 `-Wall -Wextra -Wpedantic` 零警告；
+  YMODEM 端到端单测（7 组场景）在 PC 上用 host gcc 全过；`tools/oop_audit.py --strict` 通过。
+- 待建：`services.ota_flash_ext`（P5）、`services.ota_src_http`（P6）。
 ### 新增 chip.oop_boot + services.bootloader（2026-09-18，v0.10.0）
 
 BL 外壳落地（P2）。方案文档：`ota-demo-stm32/doc/01~06`。
