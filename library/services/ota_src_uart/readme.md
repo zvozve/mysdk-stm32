@@ -52,6 +52,30 @@ add_compile_definitions(UART_DRV_BUF_SIZE=1088)
 python tools/ota_pack.py --slot a --bin app.bin --ver 1.2.3 -o app.otapkg
 ```
 
+### 4. 与 `chip.oop_uart` 的锁语义（一个曾经会致命的坑）
+
+`uart_drv_get_packet()` 会**锁定**驱动（`locked = 1`），而锁定期间 `uart_drv_send()`
+直接返回 `-3` **拒绝发送**。
+
+所以本模块在 `io_read_byte()` 里**取完一个 UART 包的最后一个字节就立刻 `release_packet()`**，
+而不是留到下一次调用。否则链路是这样断的：
+
+```
+ymodem 收满一帧 → 立刻回 ACK → 驱动说「你还锁着收包，不给发」→ ACK 永远出不去
+              → 对端一遍遍超时重传 → 双方都在干等，看起来"什么都没发生"
+```
+
+解锁同时会触发驱动的 `start_rx()`，把 RX DMA 重新武装上（驱动在提交一个包时会
+`HAL_UART_DMAStop`）。
+
+另外两条驱动的行为值得知道：
+
+- `uart_drv_send()` 开头会 `HAL_UART_DMAStop()`（**连 RX 一起停**），发送完成回调里
+  `start_rx()` 恢复。所以每发一个 ACK 都有一小段 RX 空窗 —— 靠「PC 要收到 ACK 才会发
+  下一帧」的时间差覆盖掉，通常无恙。
+- `uart_drv_on_idle()` 会区分 HT / TC / IDLE 事件，所以 **1 KB 帧不会被半传输中断截断** ——
+  但前提是缓冲够大（见上面第 1 条：`UART_DRV_BUF_SIZE` ≥ 1029）。
+
 ## 数据流
 
 ```
