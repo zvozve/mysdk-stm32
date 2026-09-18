@@ -162,19 +162,22 @@ extern "C" {
 
 /* ========== 绑定区（按实际板卡填写） ========== */
 
-/* TODO: 示例——红外接收 1838B：引脚 + 1ms 节拍 TIM 句柄 */
-/* #define BOARD_IR_RX_PORT        VS1838B_DAT_GPIO_Port  */
-/* #define BOARD_IR_RX_PIN         VS1838B_DAT_Pin       */
-/* #define BOARD_IR_RX_TIM         (&htim6)              */
+/* TODO: 示例——红外接收（解调接收头 OUT 接到捕获定时器通道引脚，1MHz 计数） */
+/* #define BOARD_IR_RX_TIM          (&htim2)          */
+/* #define BOARD_IR_RX_TIM_CHANNEL  TIM_CHANNEL_2     */
+/* #define BOARD_IR_RX_TIM_CLK_HZ   1000000UL         */
 
 /* TODO: 示例——心跳 LED + 看门狗句柄（无 IWDG 传 NULL） */
 /* #define BOARD_HEART_LED_PORT    CPU_STA_GPIO_Port     */
 /* #define BOARD_HEART_LED_PIN     CPU_STA_Pin           */
 /* #define BOARD_HEART_IWDG        NULL                  */
 
-/* TODO: 示例——红外发射：复合配置（引脚/定时器/载波参数） */
-/* #define BOARD_IR_TRANSMITTER_CFG         { GPIOE, GPIO_PIN_6, GPIO_AF3_TIM9, \\
-                                    TIM9, TIM_CHANNEL_2, 167, 25, 9 } */
+/* TODO: 示例——红外发射：载波 PWM 通道 + 一路空闲 TIM 作 µs 时基 */
+/* #define BOARD_IR_TX_TIM            (&htim3)        */
+/* #define BOARD_IR_TX_TIM_CHANNEL    TIM_CHANNEL_2   */
+/* #define BOARD_IR_TX_TIM_CLK_HZ     72000000UL      */
+/* #define BOARD_IR_TX_TICK_TIM       (&htim4)        */
+/* #define BOARD_IR_TX_TICK_CLK_HZ    72000000UL      */
 
 /* TODO: 示例——非 CubeMX 管理的外设时钟（驱动不再接管 RCC，由工程开启） */
 /* static inline void board_io_init(void) */
