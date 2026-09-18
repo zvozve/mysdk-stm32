@@ -1,20 +1,15 @@
 #ifndef __MODBUS_TCP_ADAPTER_H__
 #define __MODBUS_TCP_ADAPTER_H__
-
 #include "modbus_core.h"
-
 #if MODBUS_ENABLE_TCP
-
 #include "modbus_tcp.h"   /* tcp_driver_t 等协议层类型 */
 #include "lwip/api.h"      /* netconn API（LwIP 头只在本适配器文件引用） */
 #include "lwip/ip_addr.h"
 #include "lwip/netbuf.h"
 #include "lwip/err.h"
-
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 /* LwIP netconn 适配器入口（镜像 modbus_uart_adapter_init 的注册式接口）：
  *
  * modbus_tcp_adapter_client_init:
@@ -28,13 +23,10 @@ extern "C" {
  *   返回 0=成功，<0=失败。每 tick 调用 modbus_tcp_server_process() 驱动。 */
 int modbus_tcp_adapter_client_init(modbus_t *mb, modbus_tcp_ctx_t *tcp,
                                    const char *ip_str, uint16_t port);
-
 int modbus_tcp_adapter_server_init(modbus_t *mb, modbus_tcp_server_t *srv,
                                     uint16_t port);
-
 #ifdef __cplusplus
 }
 #endif
 #endif /* MODBUS_ENABLE_TCP */
-
 #endif /* __MODBUS_TCP_ADAPTER_H__ */
