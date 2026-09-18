@@ -61,7 +61,7 @@ space ->  CCR = 0        （恒无效电平）
    ```c
    static ir_transmitter_t s_tx;
 
-   void ir_transfer_task_init(void)
+   void ir_transmitter_task_init(void)
    {
        ir_transmitter_cfg_t cfg = {
            .htim             = BOARD_IR_TX_TIM,
