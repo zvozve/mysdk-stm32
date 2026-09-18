@@ -57,9 +57,7 @@ SDK 是单源真相仓库。通过 `tools/sync_lib.py` 按 `sdk.toml` 选模块�
 工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mystm32` 静态库即可，换板只改
 `board_cfg.h`。
 
-**`MySDK/` 要提交进工程的版本库**（不要加进 `.gitignore`）。它是「生成」的，但对 clone
-工程的人而言就是源码本身——类比 CubeMX 生成的 HAL 库与初始化代码，一律入库，保证工程
-自包含、开箱可编译。因此每次 sync 之后，`git status` 里出现的增删改都应随工程一起提交。
+> **`MySDK/` 必须提交进工程版本库**——详见下方「5. 注意事项 / 坑」。
 
 ### 1. 工程侧需要准备什么
 
@@ -139,6 +137,7 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   占位文件会让 `os.path.exists` 误判，已用「读 1 字节」加固；若仍被覆盖，从 SDK 外备份恢复。
 - **`external:lwip` 不进 SDK**：`protocols.wol` 依赖 lwIP，属 CubeMX Middlewares，工程侧提供。
 - **LwIP 自带 mqtt 冲突**：需 EXCLUDE 掉 `LwIP/apps/mqtt/mqtt.c`，避免与 `protocols.mqtt` 同名符号冲突。
+- **LwIP 接入完整避坑清单（CubeMX DNS / RTOS 任务栈 512×4 / MicroLIB / PHY 9 脚电源 / 晶振 / LED 检查）**：见 `library/devices/lan8720a/readme.md`。
 - **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
 - **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
@@ -150,64 +149,22 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
 
 ## 版本变更记录
 
-### 仓库结构三层化（2026-08-29，SDK 组织重构，模块 API 不变）
+### 仓库结构三层化（2026-08-29）
 
-- **`library/`**：原 `chip/ devices/ protocols/ middleware/` 整体移入 `library/`，作为**按 `sdk.toml` 自动拉取**的固件源码根。`sync_lib.py` 源根改为 `library/`、目标仍落 `dest/<layer>/<module>/`（剥离前缀），`sdk_manifest.json` 的 `path` 不变；`oop_audit.py` 扫描目录同步加 `library/` 前缀。
-- **`tools/`**：合并原 `.sdktool/` 与既有维护脚本，成为**全部 host 工具单源**（只调用不拉取）：`sync_lib.py`/`oop_audit.py`（SDK 维护）、`flash.bat`/`trans_gbk2utf-8.py`（工程面向）。新增 `tools/README.md` 标注分类。
-- **`manual/`**：新增**手动拷贝脚手架**（不自动拉取）：`sdk_run.py`（工程侧桥接，读 `User/sdk.toml` 的 `[sdk]` → 调 `tools/*`，使 SDK 位置只在 `sdk.toml` 一处配置）、`.vscode/`（tasks/launch/keybindings 接口模板，任务经 `sdk_run.py` 调工具）、`User/`（sdk.toml / board_cfg.h 模板）。
-- 工程侧 `.vscode` 任务的 `flash/pull/audit` 全部经 `sdk_run.py` 分发，**task.json 不出现 SDK 路径或相对深度**；换 SDK 目录只需改 `sdk.toml` 的 `sdk = "..."` 一行。
+- `library/` 收编四层固件源码（按 `sdk.toml` 自动拉取）；`tools/` 合并为 host 工具单源（只调用不拉取）；`manual/` 新增手动脚手架（`sdk_run.py` + `.vscode` + `User` 模板）。SDK 位置只在 `sdk.toml` 一处配置。
 
 ### v0.3.0 (2026-08-29) — devices 层零直调 HAL + 任务接口统一
 
-- **新增 chip OOP 封装（补齐 TIM / IWDG 边界）**：
-  - `chip/oop_tim`（`oop_tim_drv.h/.c`）：封装 `HAL_TIM_PWM_Init/ConfigChannel/Start/Stop/DeInit` 与 `HAL_TIM_Base_Start_IT/Stop_IT`，device 层统一走本封装。
-  - `chip/oop_iwdg`（`oop_iwdg_drv.h/.c`）：封装 `HAL_IWDG_Refresh`，内部按 `HAL_IWDG_MODULE_ENABLED` 守卫，未启用时为空操作，device 层无需自行 `#ifdef`。
-  - `chip/oop_dwt` 新增 `oop_GetTickMS()`（封装 `HAL_GetTick`），device 层时间基准统一走 OOP。
-- **devices 层去直调 HAL（审计结论更新）**：
-  - `ir_tx`：`HAL_GPIO_WritePin/Init` → `oop_gpio_init_af` + `OOP_GPIO_WRITE_RAW`；`HAL_TIM_PWM_*` → `oop_tim_pwm_*`。
-  - `ir_1838b`：`HAL_TIM_Base_Start_IT/Stop_IT` → `oop_tim_base_start_it/stop_it`；`HAL_GetTick` → `oop_GetTickMS`。
-  - `heart_beat`：`HAL_IWDG_Refresh` → `oop_iwdg_refresh`。
-  - `lan8720a`：`HAL_Delay` → `oop_DelayMS`。
-  - `hlk_rm58s`：`HLK_GET_TICK_MS` 宏改走 `oop_GetTickMS`。
-  - 现 6 个 device 全部经 OOP 操作；`dht11` 仍经 `OOP_GPIO_READ_RAW/WRITE_RAW`（OOP 层原始原语）与 `__disable_irq/__enable_irq`（CMSIS 内核内联，非 HAL）。
-- **任务调用接口收口（工程侧 SmartHome）**：device init 从各任务体提到 `Task_X_Init()`，`app_main_create_tasks()` 统一调用（详见项目改造）。
-- 注意：`oop_audit.py` 仅查「工程头 / 具体句柄引用」，**不查 HAL 函数调用**；本版额外以 `grep` 确认 devices 无 `HAL_TIM_*`/`HAL_IWDG_*`/`HAL_GPIO_*`/`HAL_Delay`/`HAL_GetTick` 直调残留。
+- 新增 `oop_tim` / `oop_iwdg` / `oop_dwt(oop_GetTickMS)`；devices 全部经 OOP 操作（`ir_tx`/`ir_1838b`/`heart_beat`/`lan8720a`/`hlk_rm58s`），`dht11` 走原始原语。device init 收口到 `Task_X_Init()`。
 
 ### v0.2.0 (2026-08-28) — bsp_* 全面更名 oop_* + 依赖规范化
 
-- **破坏性更名**：chip 层 `bsp_*` → `oop_*`（目录、文件、内部符号、宏、头文件守卫全部同步）：
-  - `chip/bsp_dwt` → `chip/oop_dwt`（`oop_dwt.h/.c`，`bsp_DelayUS` 等 → `oop_DelayUS`）
-  - `chip/bsp_gpio` → `chip/oop_gpio`（`oop_gpio_drv.h/.c/.c(_hal)`，`bsp_gpio_*` → `oop_gpio_*`，`BSP_GPIO_*` → `OOP_GPIO_*`）
-  - `chip/bsp_uart` → `chip/oop_uart`（同上规则）
-  - `tools/bsp_audit.py` → `tools/oop_audit.py`
-  - devices / protocols 中的所有调用点同步更新，全库 `bsp_` / `BSP_` token 清零。
-- **platform 重新处理**：`hal_platform.h` 注释中旧文件名引用同步为 `oop_uart_drv.c`；该头仍是全库唯一 HAL 入口（系列宏 `HAL_PLATFORM_G4/F4`）。
-- **依赖规范化（manifest 与实际 include 对齐）**：
-  - cJSON 归位 `middleware/cJSON`（第三方库入中间件层），manifest 条目 `protocols.cJSON` → `middleware.cJSON`，文件路径校验通过。
-  - `mqtt` 模块补齐依赖声明：`middleware.cJSON`（`mqtt_codec.c` include `cJSON.h`）。
-- 审计结论：devices/protocols 只 include ①自身头 ②chip 公共头（`oop_*.h` / `hal_platform.h`）③middleware 日志头 ④libc；无内部 `_hal` 后端泄漏、无 CubeMX 工程头、无跨层违规。
+- chip 层 `bsp_*`→`oop_*`（目录/文件/符号/宏/守卫全同步），`bsp_audit`→`oop_audit`。cJSON 归位 `middleware`，`mqtt` 补 cJSON 依赖。
 
 ### v0.1.1 (2026-08-28) — 修复 OOP 封装泄漏 HAL
 
-- **核心约束**：SDK 不再包含任何工程生成头（`main.h` / `tim.h` / `gpio.h` / `usart.h` / `config_network.h` 等），也不再引用具体全局句柄（`&huart6` / `&htim6` / `hiwdg` / `gnetif`）或 MX 引脚宏（`XXX_GPIO_Port` / `XXX_Pin`）。
-- **具体句柄 / IO / 定时器 / 网口全部改为由调用方注入**（工程 `board_cfg` 完成绑定），SDK 仅做板无关 OOP 封装：
-  - `oop_uart`：删除硬编码 `&huart6` 描述表，`huart` 由 `uart_drv_init()` 注入。
-  - `ir_1838b`：`IR1838B_Init(port, pin, htim)` 增加 TIM 句柄注入。
-  - `ir_tx`：新增 `ir_tx_cfg_t`，`IR_TX_Init(cfg)` 注入 GPIO/TIM/载波参数（原 PE6/TIM9/PSC/ARR 全部外提）。
-  - `heart_beat`：`heart_beat_init(led_port, led_pin, hiwdg)` 注入 LED 与看门狗句柄，删除 `MX_IWDG_Init` / `CPU_STA_*`。
-  - `lan8720a`：`ETH_RST_Init(port, pin)` 注入复位引脚。
-  - `dht11`：`DHT11_Init(port, pin)` 注入 DAT 引脚。
-  - `wol`：`send_wol(mac, netif)` / `wol_print_mac(mac)` / `wol_check_network_ready(netif)` 注入目标 MAC 与网口。
-  - `oop_dwt`：头文件 `main.h` → `hal_platform.h`。
-- 新增 `tools/oop_audit.py` 做 HAL 泄漏静态检查（`python tools/oop_audit.py --strict`），回归防护。
+- 全库剔除工程头/具体句柄/MX 引脚宏，改由各模块 `init` 注入（`uart`/`ir_1838b`/`ir_tx`/`heart_beat`/`lan8720a`/`dht11`/`wol`/`oop_dwt`）。新增 `oop_audit.py` 回归防护。
 
 ### v0.1.0 (2026-08-28) — 初始版本
 
-- 建立四层结构 `chip/ devices/ protocols/ middleware/`，确定层命名与 `hal_platform` 移植层。
-- 收录模块（含各自版本）：
-  - chip：oop_dwt (V2.0)、oop_gpio (V3.1)、oop_uart (V3.0)、hal_platform (V1.0)
-  - devices：dht11 (V3.1)、heart_beat (无标注)、hlk_rm58s (无标注)、ir_1838b (V1.2)、ir_tx (V1.0)、lan8720a (无标注)
-  - protocols：ac_codec (V1.0)、cJSON (1.7.18)、mqtt (无标注)、wol (无标注)
-  - middleware：SEGGER_RTT (第三方，无标注)
-- 新增 `sdk_manifest.json`（schema 1.0）：描述 families / layers / modules（depends、backends、files、version），供 `sync_lib.py` 与未来 GUI 读取。
-- 已知待清理：`middleware/cJSON` 为空占位目录，真实 cJSON 已落在 `protocols/cJSON`，后续删除空占位。
+- 四层结构 + `hal_platform` 移植层；收录模块见「版本」章节清单；新增 `sdk_manifest.json` (schema 1.0)。
