@@ -15,8 +15,13 @@
 ### 2) 工程面向工具（开发者经 F8/F7 等任务调用）
 | 文件 | 作用 |
 |---|---|
-| `flash.bat` | STM32 J-Link 烧录（自动读 `.ld` 判断 OTA / 普通模式、读 `.ioc` 识别芯片） |
+| `flash.py` | STM32 J-Link 烧录：自检 J-Link 安装目录（参数>环境变量>注册表/扫描/PATH 里取版本最高）、从 `.ioc` 的 `Mcu.CPN` 规范化出 J-Link 器件名、读 `.ld` 判断 OTA/普通模式，并把检测结果写回工程 `.vscode/settings.json` 供 cortex-debug 用。带 `--dry-run` / `--settings-only` / `--no-write-settings` / `--color auto\|always\|never`（沿用旧 flash.bat 的彩色提示；输出重定向时自动无色） |
 | `trans_gbk2utf-8.py` | GBK/GB2312 源码批量转 UTF-8 |
+
+> `flash.py` 的位置参数与旧 `flash.bat` 完全一致 `[JLROOT ELF DEV ITF SPEED PROJ]`（空串=自动检测），
+> 所以 `.vscode/tasks.json` **不必改**。`flash.bat` 已于 2026-09-18 删除——它在 `.ioc` 里抠的是
+> `Mcu.UserName`（如 `STM32F407ZGTx`），J-Link 器件表里没有这种带 `Tx` 后缀的名字，不显式传
+> Device 就烧不进去。
 
 ## 调用链（关键：SDK 位置只在 `sdk.toml` 一处配置）
 ```

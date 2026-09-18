@@ -39,20 +39,27 @@ def sdk_root() -> str:
 def main() -> int:
     if len(sys.argv) < 2:
         sys.exit("用法: sdk_run.py <flash|pull|audit|trans> [...]")
+    try:
+        # 任务面板里 SDK 侧日志要先于子进程输出出现（否则被缓冲顺序打乱）
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
     task = sys.argv[1]
     rest = sys.argv[2:]
     sdk = sdk_root()
     tool_dir = os.path.join(sdk, "tools")
 
     if task == "flash":
-        bat = os.path.join(tool_dir, "flash.bat")
-        # flash.bat 期望 [JLROOT ELF DEV ITF SPEED PROJ]；PROJ 缺省=工程根
-        args = list(rest)
-        if len(args) < 6:
-            args.append(PROJ)
-        cmd = '"%s" %s' % (bat, " ".join('"%s"' % a for a in args))
-        print("[sdk_run] flash ->", bat)
-        return subprocess.run(cmd, shell=True).returncode
+        # 只调 py 版：它能自检 J-Link 安装目录与 .ioc 器件名（规范化后交 J-Link 校验），
+        # 并把检测结果写回 settings.json 供 cortex-debug 用 → 烧录/调试都不写死路径。
+        # 位置参数 [JLROOT ELF DEV ITF SPEED PROJ]（空串=自动检测）；
+        # 另支持 --dry-run / --settings-only / --no-write-settings，见 flash.py --help。
+        py = os.path.join(tool_dir, "flash.py")
+        if not os.path.isfile(py):
+            sys.exit("[sdk_run] 找不到 %s —— SDK 检出过旧（flash.bat 已废弃并删除），"
+                     "请更新 SDK 检出" % py)
+        print("[sdk_run] flash ->", py)
+        return subprocess.run([sys.executable, py, *rest]).returncode
 
     if task == "pull":
         script = os.path.join(tool_dir, "sync_lib.py")

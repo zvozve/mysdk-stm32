@@ -9,7 +9,7 @@
   - 协议封装 / 可复用算法 —— `library/protocols/`
   - 系统服务（固件生命周期、升级等） —— `library/services/`
   - 第三方中间件 —— `library/middleware/`
-- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sync_lib.py` / `oop_audit.py`（SDK 维护）、`flash.bat` / `trans_gbk2utf-8.py`（工程面向）。
+- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sync_lib.py` / `oop_audit.py`（SDK 维护）、`flash.py` / `trans_gbk2utf-8.py`（工程面向）。
 - `manual/` —— 手动拷贝到工程的脚手架（`sdk_run.py` 桥接 + `.vscode` 接口模板 + `User/` 配置模板），**不自动拉取**。
 
 ## 版本
@@ -37,7 +37,7 @@ mystm32-sdk/
 │   ├── sync_lib.py   # 子集拉取（SDK 维护）
 │   ├── oop_audit.py  # HAL 泄漏检查（SDK 维护）
 │   ├── ota_pack.py   # OTA 固件打包 bin -> .otapkg（工程面向；经 sdk_run.py pack 调用）
-│   ├── flash.bat     # J-Link 烧录（工程面向）
+│   ├── flash.py      # J-Link 烧录（工程面向；自检 J-Link 路径/器件名并回写 settings.json 供 debug 用）
 │   └── trans_gbk2utf-8.py  # GBK→UTF-8（工程面向）
 ├── manual/           # 手动拷贝的脚手架（不自动拉取）
 │   ├── sdk_run.py    # 工程侧桥接：读 User/sdk.toml → 调 tools/*
