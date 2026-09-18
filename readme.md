@@ -38,7 +38,8 @@ mystm32-sdk/
 ├── manual/           # 手动拷贝的脚手架（不自动拉取）
 │   ├── sdk_run.py    # 工程侧桥接：读 User/sdk.toml → 调 tools/*
 │   ├── .vscode/      # tasks/launch/keybindings 接口模板（task 调 sdk_run.py）
-│   └── User/         # sdk.toml / board_cfg.h 模板
+│   ├── User/         # sdk.toml / board_cfg.h 模板
+│   └── .gitignore    # 工程默认忽略项（拷到工程根；含「必须入库」反面清单）
 ├── sdk_manifest.json # SDK 自描述（模块/依赖/版本/文件清单）
 └── readme.md
 ```
@@ -147,11 +148,26 @@ SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所�
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
 - **路径风格**：sync 命令用 Windows 风格 `C:/...`，避免 Git Bash 把 `/c/...` 解析成 `c:\c\...`。
 - **工程侧接口（SDK 位置只在 `sdk.toml` 一处配置）**：把 `manual/` 的内容拷到工程——
-  `manual/sdk_run.py` → 工程根、`manual/.vscode/*` → 工程 `.vscode/`、`manual/User/*` → 工程 `User/`。
+  `manual/sdk_run.py` → 工程根、`manual/.gitignore` → 工程根、`manual/.vscode/*` → 工程 `.vscode/`、
+  `manual/User/*` → 工程 `User/`。
   之后 `.vscode` 任务（Build/Pull/Audit/Flash/Debug）经 `sdk_run.py` 桥接调用 `tools/*`，
   **task.json 与 sdk_run.py 都不硬编码 SDK 路径**；换 SDK 目录只改 `sdk.toml` 的 `sdk = "..."` 一行。
+- **`.gitignore` 两个，目的不同**：仓库根那份管 SDK 自身；`manual/.gitignore` 是给工程的默认模板（随脚手架拷走）。
+  模板只忽略「可再生成的产物」与「本机/个人工具态」，并把 `MySDK/`、`User/`、`.vscode/`、`*.ioc`/`.mxproject`、
+  `sdk_run.py` 列成**禁止忽略反面清单**——这几项看着像产物，缺了别人 clone 后编译不过或无法复现。
+  写规则时**注释必须独立成行**：`.cache/  # 缓存` 这种行尾注释会被 gitignore 当成模式的一部分，规则静默失效
+  （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+
+### 忽略项默认模板（2026-09-18）— `.gitignore` 两份 + manual 脚手架补充
+
+- 新增 `manual/.gitignore`：随脚手架拷到工程根即生效的**默认忽略模板**。屏蔽 `.claude/` `.codegraph/` `.workbuddy/` `.cache/`、构建产物（`build/` `Build/` `Debug/` `Release/` + `*.o/*.d/*.elf/*.bin/*.hex/*.map/*.lst`）、Keil MDK-ARM（`MDK-ARM/` `RTE/` `*.uvprojx` `*.uvoptx` `*.axf` `*.crf` `*.dep` `*.htm` `JLinkLog.txt`…）、其他 IDE（`.settings/` `.metadata/`）、CMake 误 in-source 构建兜底、备份/临时副本（含 `*.ioc.broken`）。
+- 仓库根 `.gitignore` 同步补齐为同一套规则（原先只有 `.inbox` / `.workbuddy` / `todo.md`）。
+- 模板内含**「禁止忽略」反面清单**：`MySDK/`、`User/`、`*.ioc`/`.mxproject`、`sdk_run.py`、`.vscode/`、`Core/`、`*.md` —— 看着像产物但缺失会导致别人 clone 后编译不过或无法复现，防止后来人「顺手清理」。
+- **踩坑并已修**：gitignore **不支持行尾注释**，`.cache/  # 缓存` 会被当成模式本身。初版三条带行尾注释的规则（`.cache/`、`.vscode/*.log`、`*.ioc.broken`）静默失效，已全部改为注释独立成行；两个文件都写明了这一坑。
+- 校验方式：临时仓 `git check-ignore --no-index` 全量跑，42 项应忽略零漏、25 项必入库零误伤。
+- 未动 `sdk_manifest.json` 与 SDK 版本号：这两份文件不属于 `MySDK/` 拉取内容，接入工程不会因此产生 diff。
 
 ### 新增 protocols.cli（2026-09-18）— 串口命令行核心（命令注册 + 行解析）
 

@@ -1,0 +1,74 @@
+# ── 工程默认忽略项（mystm32-sdk 脚手架）────────────────────────────────
+# 本文件随 manual/ 一起拷到工程根，拷贝后即生效，通常不需要改。
+# 取舍原则：只忽略「可再生成的产物」与「本机/个人工具态」。
+# 坑：gitignore 不支持行尾注释——`#` 出现在模式后面会被当成模式本身，规则静默失效。
+#     加规则时刻意把注释写在上一行。
+# 文末「禁止忽略」一节的条目看着像产物，实为工程的一部分——读完再动手删。
+
+# ── 本机 / 个人工具态（别人机器上没有，且会互相覆盖）──
+.claude/
+.codegraph/
+.workbuddy/
+# clangd 索引缓存
+.cache/
+# 注意：.vscode/ 本身要入库（见文末），这里只挡日志
+.vscode/*.log
+
+# ── 构建产物（全部可再生成）──
+/build/
+/Build/
+/Debug/
+/Release/
+*.o
+*.d
+*.su
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.lst
+
+# ── Keil MDK-ARM ──
+/MDK-ARM/
+/RTE/
+*.uvprojx
+*.uvoptx
+*.uvguix.*
+*.axf
+*.crf
+*.dep
+*.lnp
+*.plg
+*.scvd
+*.htm
+JLinkLog.txt
+JLinkSettings.ini
+*.jflash
+
+# ── 其他 IDE / 编辑器 ──
+/.settings/
+/.metadata/
+
+# ── CMake 误 in-source 构建的兜底（本工作流一律 out-of-source 到 build/）──
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+compile_commands.json
+
+# ── 备份 / 临时副本 ──
+*.bak
+*.orig
+*~
+# CubeMX 解析失败时产出的副本：别提交，先查 .ioc 为什么解析不了
+*.ioc.broken
+
+# ── 禁止忽略：以下各项必须入库 ────────────────────────────────────────
+#   MySDK/            SDK 拉取镜像。虽是 sync 生成的，但没有它别人 clone 后直接编译不过，
+#                     定位等同 CubeMX 生成的 HAL 库与初始化代码；每次 sync 后要 git add。
+#   User/             含 board_cfg.h（板级绑定的唯一真相源）与 sdk.toml（SDK 位置配置）。
+#   *.ioc / .mxproject  CubeMX 配置真相源，引脚只在这里定义。
+#   sdk_run.py        SDK 工具桥接脚本，.vscode 的 Build/Pull/Audit/Flash 任务靠它调用。
+#   .vscode/          SDK 接口模板（tasks / launch / keybindings），team 共享。
+#   Core/             含手工补丁（如 TIM2 NVIC 使能）的生成代码，见驱动 readme 的「生成后需手动修改」。
+#   *.md              工程说明与决策记录。
