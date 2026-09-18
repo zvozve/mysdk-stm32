@@ -12,6 +12,10 @@
 #include "task.h"
 #define RTT_GET_TICK()      xTaskGetTickCount()
 #else
+/* 裸机分支：HAL_GetTick 需要 HAL 原型。在这里 include hal_platform.h 而不是要求
+ * 使用方「先 include HAL 头再 include 本头」—— 头文件要自洽，否则 include 顺序
+ * 一换（比如新模块先 include 日志头）就是一串 implicit declaration。 */
+#include "hal_platform.h"
 #define RTT_GET_TICK()      (HAL_GetTick() > 0 ? HAL_GetTick() : 0)
 #endif
 

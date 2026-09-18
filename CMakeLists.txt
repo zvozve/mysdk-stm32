@@ -23,6 +23,7 @@ file(GLOB_RECURSE MYSTM32_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/devices/*/Src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/*/Src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/protocols/*/Src/*.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Src/*.c
     # 汇编源（如 SEGGER_RTT_ASM_ARMv7M.S 位于 middleware/SEGGER_RTT/Inc/）
     ${CMAKE_CURRENT_SOURCE_DIR}/chip/*/Src/*.S
     ${CMAKE_CURRENT_SOURCE_DIR}/chip/*/Inc/*.S
@@ -32,6 +33,8 @@ file(GLOB_RECURSE MYSTM32_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/*/Inc/*.S
     ${CMAKE_CURRENT_SOURCE_DIR}/protocols/*/Src/*.S
     ${CMAKE_CURRENT_SOURCE_DIR}/protocols/*/Inc/*.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Src/*.S
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Inc/*.S
 )
 target_sources(mystm32 PRIVATE ${MYSTM32_SOURCES})
 
@@ -41,6 +44,7 @@ file(GLOB MYSTM32_INCS LIST_DIRECTORIES true
     ${CMAKE_CURRENT_SOURCE_DIR}/devices/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/protocols/*/Inc
+    ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Inc
 )
 target_include_directories(mystm32 PUBLIC ${MYSTM32_INCS})
 
