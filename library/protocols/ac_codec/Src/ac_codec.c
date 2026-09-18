@@ -4,7 +4,7 @@
  * @version V1.0
  * @date    2026-08-27
  *
- * 输出为“载波时长数组”，与 IR_TX_SendRaw() 约定一致：
+ * 输出为“载波时长数组”，与 IR_Transmitter_SendRaw() 约定一致：
  *   数组元素依次为 [mark, space, mark, space, ...]（单位 us），
  *   调用方传 level_start=0（第一段点亮红外管）。
  */

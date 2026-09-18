@@ -6,7 +6,7 @@
  *
  * 设计：TIM 句柄由调用方（工程 board_cfg / device cfg）注入，本层只做
  * 板无关的 OOP 封装，HAL_TIM_* 是唯一的 vendor 边界（与 oop_gpio_drv_hal.c 同理）。
- * device 层（ir_tx / ir_1838b）不再直调 HAL_TIM_*，统一走本封装。
+ * device 层（ir_transmitter / ir_receiver）不再直调 HAL_TIM_*，统一走本封装。
  */
 
 #ifndef __OOP_TIM_DRV_H

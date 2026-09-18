@@ -97,7 +97,7 @@
       "version": "V1.0",
       "updated": "2026-08-29",
       "path": "chip/oop_tim",
-      "description": "TIM OOP 驱动封装（PWM 载波 + 通用时基 IT），坐 HAL_TIM_* 之上；device 层（ir_tx / ir_1838b）统一走本封装，不直调 HAL_TIM_*。",
+      "description": "TIM OOP 驱动封装（PWM 载波 + 通用时基 IT），坐 HAL_TIM_* 之上；device 层（ir_transmitter / ir_receiver）统一走本封装，不直调 HAL_TIM_*。",
       "depends": [
         "chip.platform"
       ],
@@ -357,14 +357,14 @@
       ]
     },
     {
-      "id": "devices.ir_1838b",
-      "name": "ir_1838b",
+      "id": "devices.ir_receiver",
+      "name": "ir_receiver",
       "layer": "devices",
       "category": "ir",
       "version": "V1.2",
       "updated": "2026-08-27",
-      "path": "devices/ir_1838b",
-      "description": "红外接收头 IR 1838B 驱动（基于定时器输入捕获）。",
+      "path": "devices/ir_receiver",
+      "description": "红外接收驱动（解调输出型接收头，如 VS1838B/HX1838；GPIO 双沿中断 + DWT 打时间戳得到 raw 时长序列，依赖注入的 1ms TIM 节拍做静默收尾）。",
       "depends": [
         "chip.oop_dwt",
         "chip.oop_gpio",
@@ -375,19 +375,19 @@
         "hal"
       ],
       "files": [
-        "devices/ir_1838b/Inc/ir_1838b.h",
-        "devices/ir_1838b/Src/ir_1838b.c"
+        "devices/ir_receiver/Inc/ir_receiver.h",
+        "devices/ir_receiver/Src/ir_receiver.c"
       ]
     },
     {
-      "id": "devices.ir_tx",
-      "name": "ir_tx",
+      "id": "devices.ir_transmitter",
+      "name": "ir_transmitter",
       "layer": "devices",
       "category": "ir",
       "version": "V1.0",
       "updated": "2026-08-27",
-      "path": "devices/ir_tx",
-      "description": "红外发射驱动（PWM/载波调制）。",
+      "path": "devices/ir_transmitter",
+      "description": "红外发射驱动（注入了引脚/定时器/载波参数的 TIM PWM 载波 + DWT 门控，阻塞播放 raw 时长数组）。",
       "depends": [
         "chip.platform",
         "chip.oop_dwt",
@@ -399,8 +399,8 @@
         "hal"
       ],
       "files": [
-        "devices/ir_tx/Inc/ir_tx.h",
-        "devices/ir_tx/Src/ir_tx.c"
+        "devices/ir_transmitter/Inc/ir_transmitter.h",
+        "devices/ir_transmitter/Src/ir_transmitter.c"
       ]
     },
     {
@@ -884,7 +884,7 @@
     "版本号规则：SDK 顶层 version 用语义化 0.1.1；模块 version 沿用源码 @version 标注（Vx.y 或第三方原生版本），无标注者填 null。",
     "项目选择子集用 sdk.toml；sync_lib.py 依据本 manifest 的 files/depends 拷贝并生成 board_cfg.h 与 lib_sources.cmake。拉取内容置于工程 MySDK/，绑定（devicetree 类）在工程侧完成。",
     "★ 2026-08-29 入库整理（.inbox → library）：新增 chip.oop_i2c（取代旧 BSP/bsp_i2c，软 I2C 单源）；devices.at24cxx、devices.OLED12864（仅驱动层）、devices.key（通用按键引擎，防抖+短/长按回调，引脚由 board_cfg 注入 gpio_dev_t，去 user_app.h/ui_bt_trigger/SET_GPIO_Port 硬编码）、devices.tm8211（I2S+DMA 正弦波发生器后端，hi2s 句柄注入，去 extern tm8211 全局与 test 任务）已入库。DROP（冗余/泄漏）：BSP/bsp_dwt|bsp_gpio|bsp_uart（被 oop_* 严格超集覆盖）、BSP/bsp_i2c（→ oop_i2c）、Middleware/SEGGER_RTT（与 library 版本重复）、Protocols/IIC（与 chip.oop_i2c 重复，单源保留 oop_i2c）、TM8211 的 GPIO手搓/SPI简化/SPI多设备 三版（仅留 I2S_DMA 版作单源，其余留 Component 当参考，不进 SDK）。",
-    "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_1838b/ir_tx/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
+    "★ 2026-08-29 分层铁律收紧：仅 chip/ 可直接用 HAL 库。device/ 与 protocol/ 不得直接调 HAL_* 函数或定义 HAL_*Callback——HAL 封装一律下沉 chip/（oop_uart/oop_i2s/oop_tim/oop_iwdg）。devices.tm8211 原直调 HAL_I2S_Transmit_DMA/DMAStop 与定义 HAL_I2S_TxCpltCallback，已改走新建 chip.oop_i2s；protocols.Modbus 裸机分支 HAL_GetTick/HAL_Delay 改走 chip.oop_dwt。tools/oop_audit.py 已加\"非 chip 层直调 HAL 函数\"检查。注：dht11/ir_receiver/ir_transmitter/lan8720a 仍 include hal_platform.h 仅取 HAL 类型（句柄由注入），属既成灰区，未强制；如需彻底去 HAL 类型依赖可后续解耦。",
     "★ 2026-08-29 OLED 文件夹改名：devices/OLED12864 → devices/oled12864（全小写，manifest id/name/path 同步）。",
     "★ 2026-09-16 补入工程侧通用驱动（elecmgt-driver/mcu 回流）：chip.oop_adc（BSP/bsp_adc 迁入，ADC+DMA 唯一所有者）、chip.hbridge（Hardware/hbridge，TIM1/8 H 桥突发 DMA）、chip.mcp42010（Hardware/mcp42010，SPI 数字电位器，MCP42010_Init 注入句柄）、devices.gh2se（Hardware/gh2se，纯逻辑状态机）、devices.dip_switch（Hardware/dip_switch，DIP_Init(map) 注入 8 路引脚）、devices.sigout（Hardware/sigout，SIGOUT_Init(map) 注入 6 路引脚）。SEGGER_RTT_Log.h 的 RTT_USE_RTOS 改 #ifndef 守卫（默认1，裸机工程 -DRTT_USE_RTOS=0 走 HAL_GetTick）。SDK 顶层 version → 0.3.1。",
     "★ 2026-09-16 分层重构（v0.4.0）：新增 chip.oop_dma（HAL_DMA_* 唯一入口，含完成回调内部表分发）；chip.oop_tim 扩展 H 桥专用原语（CCR 直写 / OC 预载 / DMAR 突发配置 / DMA 突发请求 / 输出使能+BDTR MOE / 计数器启停 / 主从同步 / 计数复位 / DMAR 地址 getter）；chip.hbridge 全量改走 oop_tim/oop_dma，删除所有 TIMx->* 直戳与 HAL_DMA_* 直调（含 StartWaveDualSync 原裸写 DMA_Channel CCR/CPAR/CMAR/CNDTR，改为统一走 oop_dma_start_it）。SDK 根 CMakeLists.txt 补 GLOB `*.S`（SEGGER_RTT_ASM_ARMv7M.S 位于 Inc/），避免 Cortex-M Release undefined reference。",
@@ -892,6 +892,7 @@
     "★ 2026-09-17 分层修正（用户指出 chip=STM32 仅）：chip.mcp42010 → devices.mcp42010（外部 SPI 电位器，非片上外设；SPI 改走新建 chip.oop_spi，CS 走 oop_gpio，device 层彻底去 HAL 直调）；chip.hbridge → devices.hbridge（外部 H 桥电路，坐 oop_tim/oop_dma 之上）。新增 chip.oop_spi（HAL_SPI_* 唯一入口，对齐 oop_i2c/oop_uart）。devices.elecMgt 的 depends 由 chip.hbridge 改为 devices.hbridge。",
     "★ 2026-09-17 入库整理（mcu_hw_1_4 Old/Hardware 迁移）：新增 devices.ch374u（CH374 SPI USB Host 控制器）、devices.ds1302（3 线 RTC）、devices.usb_host（USBH HID 应用适配层）、并补登此前漏登的 devices.ch9434；chip.oop_spi 由单例改为多实例（oop_spi_dev_t，hspi2/hspi3 可并存）。bsp_dwt → chip.oop_dwt、uart_port → chip.oop_uart、heart_beat/lan8720a 沿用既有 SDK 模块，GPIO 引脚表归工程 board_cfg + Tasks，均不入 SDK。CubeMX 生成文件（usbh_conf.c / usbh_platform.c / usb_host.c 等）一律不进 SDK，其手工修复记录在 library/devices/usb_host/readme.md 与 library/devices/ch374u/readme.md。",
     "★ 2026-09-17 修正（SDK 收纳边界）：SDK 只承载「CubeMX 生成内容 + 用户自写胶水」，不引入 CubeMX 生成的厂商库。故撤除 middleware.usbh（ST USB Host Library 是 CubeMX 的 Middlewares 组件，工程侧已由 CubeMX 生成并编译为 USB_Host_Library，SDK 再带一份必然重复符号）；devices.usb_host 的依赖改为 external:usbh —— 声明「由宿主工程提供」，与 protocols.wol 的 external:lwip 同构，只保留应用适配层。usbh_core.c 的「跳过 SET_WAKEUP_FEATURE」修复属 CubeMX 生成文件的手工修复，须保留在工程侧 Middlewares/ST/STM32_USB_Host_Library/Core/Src/usbh_core.c，不在 SDK 内。另：移除时发现本机 git rm -r <dir> 会连带删除同层其它工作区文件，改目录请走文件系统删除 + git add -A。",
-    "★ 2026-09-18 入库 devices.ws1850s（V1.0，异步版）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。原工程 rfid-driver 有「阻塞等待（mcu-main，TIM6_Delay_ms 忙等）」与「异步状态机（mcu-dev）」两版，本次仅按异步逻辑迁入 SDK：uart_drv_t* 注入 + ws1850s_process() 拉取收包 + 回调（result/card/state），全程不阻塞，与 devices.hlk_rm58s 同构。帧解析忠实移植原 demo（cmd 应答/主动读卡帧字段），未上板实测，首次使用请结合 RTT 日志校验帧字段。"
+    "★ 2026-09-18 入库 devices.ws1850s（V1.0，异步版）：WS1850S RFID 读卡器（MFRC522/RC522 国产兼容，UART 二进制帧协议）。原工程 rfid-driver 有「阻塞等待（mcu-main，TIM6_Delay_ms 忙等）」与「异步状态机（mcu-dev）」两版，本次仅按异步逻辑迁入 SDK：uart_drv_t* 注入 + ws1850s_process() 拉取收包 + 回调（result/card/state），全程不阻塞，与 devices.hlk_rm58s 同构。帧解析忠实移植原 demo（cmd 应答/主动读卡帧字段），未上板实测，首次使用请结合 RTT 日志校验帧字段。",
+    "★ 2026-09-18 改名（去芯片名 / 补全长名）：devices.ir_1838b → devices.ir_receiver（1838B 只是解调输出型接收头的一个型号，模块不绑定芯片），devices.ir_tx → devices.ir_transmitter（tx 过短且与 receiver 不成对）。符号同步：IR1838B_* → IR_Receiver_*、IR_TX_* → IR_Transmitter_*、ir_tx_cfg_t → ir_transmitter_cfg_t；文件/守卫/全库引用（manual 的 sdk.toml 与 board_cfg 模板、sync_lib.py、oop_tim 与 ac_codec 注释）一并更新。同时修正 ir_receiver 描述——原写「基于定时器输入捕获」与实现不符，实为 GPIO 双沿中断 + DWT 打时间戳。"
   ]
 }

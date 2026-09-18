@@ -15,7 +15,7 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
 
     [modules]                              # 显式选择；depends 闭包自动补全
     "chip.oop_dwt"   = true
-    "devices.ir_tx"  = true
+    "devices.ir_transmitter" = true
 
 行为:
     1. 读 sdk_manifest.json，解析所选模块的 depends 闭包（external:* 跳过）
@@ -173,7 +173,7 @@ extern "C" {
 /* #define BOARD_HEART_IWDG        NULL                  */
 
 /* TODO: 示例——红外发射：复合配置（引脚/定时器/载波参数） */
-/* #define BOARD_IR_TX_CFG         { GPIOE, GPIO_PIN_6, GPIO_AF3_TIM9, \\
+/* #define BOARD_IR_TRANSMITTER_CFG         { GPIOE, GPIO_PIN_6, GPIO_AF3_TIM9, \\
                                     TIM9, TIM_CHANNEL_2, 167, 25, 9 } */
 
 /* TODO: 示例——非 CubeMX 管理的外设时钟（驱动不再接管 RCC，由工程开启） */

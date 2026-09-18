@@ -1,11 +1,11 @@
 /**
- * @file    ir_1838b.c
- * @brief   1838B 红外接收驱动实现
+ * @file    ir_receiver.c
+ * @brief   IR 接收驱动实现（解调输出型接收头）
  * @version V1.2
  * @date    2026-08-27
  */
 
-#include "ir_1838b.h"
+#include "ir_receiver.h"
 #include "oop_dwt.h"
 #include "oop_tim_drv.h"
 #include "SEGGER_RTT_Log.h"
@@ -14,7 +14,7 @@
 
 /* ========== 内部变量 ========== */
 static gpio_dev_t               s_ir_dev;
-static TIM_HandleTypeDef        *s_htim = NULL;   /* 1ms 节拍定时器，由 IR1838B_Init 注入 */
+static TIM_HandleTypeDef        *s_htim = NULL;   /* 1ms 节拍定时器，由 IR_Receiver_Init 注入 */
 static volatile bool            s_enabled = false;
 static volatile bool            s_frame_ready = false;
 
@@ -86,7 +86,7 @@ static void ir_gpio_callback(uint16_t pin, void *user_data)
  * @note   TIM6 中断与 EXTI9_5 同为抢占优先级 5，二者不会互相抢占，
  *         因此访问共享状态无需额外加锁。
  */
-void IR1838B_Tick1ms(void)
+void IR_Receiver_Tick1ms(void)
 {
     if (!s_enabled || s_frame_ready || s_edge_cnt == 0) {
         return;
@@ -116,10 +116,10 @@ void IR1838B_Tick1ms(void)
 
 /* ========== API 实现 ========== */
 
-bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
+bool IR_Receiver_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
 {
     if (port == NULL || htim == NULL) {
-        SYS_LOG("IR1838B: Init FAIL, port/htim=NULL");
+        SYS_LOG("IR_Receiver: Init FAIL, port/htim=NULL");
         return false;
     }
     s_htim = htim;
@@ -142,48 +142,48 @@ bool IR1838B_Init(GPIO_TypeDef *port, uint16_t pin, TIM_HandleTypeDef *htim)
     /* 注册中断回调（不重复配置 GPIO） */
     if (!oop_gpio_irq_register(port, pin, ir_gpio_callback, NULL,
                                OOP_GPIO_EDGE_BOTH, 0, OOP_GPIO_IRQ_LEVEL_ANY)) {
-        SYS_LOG("IR1838B: IRQ register FAIL");
+        SYS_LOG("IR_Receiver: IRQ register FAIL");
         return false;
     }
 
     s_enabled = true;
 
     /* 启动注入的 TIM（1ms 节拍）用于静默收尾。
-     * TIM 由 CubeMX 配置好 1ms 参数，其更新中断里调用 IR1838B_Tick1ms；
+     * TIM 由 CubeMX 配置好 1ms 参数，其更新中断里调用 IR_Receiver_Tick1ms；
      * SDK 只负责启动/停止，不记录具体定时器实例。 */
     if (!oop_tim_base_start_it(s_htim)) {
-        SYS_LOG("IR1838B: TIM start FAIL");
+        SYS_LOG("IR_Receiver: TIM start FAIL");
     }
 
     uint8_t level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
-    SYS_LOG("IR1838B: Init OK, pin level=%u (idle should be 1)", level);
+    SYS_LOG("IR_Receiver: Init OK, pin level=%u (idle should be 1)", level);
 
     return true;
 }
 
-void IR1838B_DeInit(void)
+void IR_Receiver_DeInit(void)
 {
     s_enabled = false;
     if (s_htim != NULL) {
         oop_tim_base_stop_it(s_htim);
     }
     oop_gpio_irq_unregister(s_ir_dev.pin.port, s_ir_dev.pin.pin);
-    SYS_LOG("IR1838B: DeInit");
+    SYS_LOG("IR_Receiver: DeInit");
 }
 
-void IR1838B_Enable(bool enable)
+void IR_Receiver_Enable(bool enable)
 {
     s_enabled = enable;
     oop_gpio_irq_enable(s_ir_dev.pin.port, s_ir_dev.pin.pin, enable);
-    SYS_LOG("IR1838B: %s", enable ? "Enabled" : "Disabled");
+    SYS_LOG("IR_Receiver: %s", enable ? "Enabled" : "Disabled");
 }
 
-bool IR1838B_Available(void)
+bool IR_Receiver_Available(void)
 {
     return s_frame_ready;
 }
 
-bool IR1838B_GetRaw(ir_raw_frame_t *frame)
+bool IR_Receiver_GetRaw(ir_raw_frame_t *frame)
 {
     if (!s_frame_ready || frame == NULL) {
         return false;
@@ -197,38 +197,38 @@ bool IR1838B_GetRaw(ir_raw_frame_t *frame)
     s_last_level      = 1;
     __enable_irq();
 
-    SYS_LOG("IR1838B: GetRaw OK, edges=%u, irq_cnt=%lu, frame_cnt=%lu",
+    SYS_LOG("IR_Receiver: GetRaw OK, edges=%u, irq_cnt=%lu, frame_cnt=%lu",
             frame->edges, s_irq_cnt, s_frame_cnt);
 
     return frame->valid;
 }
 
-void IR1838B_RegisterDecoder(ir_protocol_decoder_t decoder)
+void IR_Receiver_RegisterDecoder(ir_protocol_decoder_t decoder)
 {
     s_decoder = decoder;
-    SYS_LOG("IR1838B: Decoder %s", decoder ? "registered" : "cleared");
+    SYS_LOG("IR_Receiver: Decoder %s", decoder ? "registered" : "cleared");
 }
 
-bool IR1838B_Decode(void *result)
+bool IR_Receiver_Decode(void *result)
 {
     if (s_decoder == NULL || !s_frame_ready) {
         return false;
     }
 
     ir_raw_frame_t frame;
-    if (!IR1838B_GetRaw(&frame)) {
+    if (!IR_Receiver_GetRaw(&frame)) {
         return false;
     }
 
     bool ok = s_decoder(&frame, result);
-    SYS_LOG("IR1838B: Decode %s", ok ? "OK" : "FAIL");
+    SYS_LOG("IR_Receiver: Decode %s", ok ? "OK" : "FAIL");
     return ok;
 }
 
-void IR1838B_PrintRaw(const ir_raw_frame_t *frame)
+void IR_Receiver_PrintRaw(const ir_raw_frame_t *frame)
 {
     if (frame == NULL || !frame->valid) {
-        SYS_LOG("IR1838B: PrintRaw invalid frame");
+        SYS_LOG("IR_Receiver: PrintRaw invalid frame");
         return;
     }
 
@@ -244,14 +244,14 @@ void IR1838B_PrintRaw(const ir_raw_frame_t *frame)
 /**
  * @brief  打印当前状态（可在任务里周期性调用）
  */
-void IR1838B_PrintStatus(void)
+void IR_Receiver_PrintStatus(void)
 {
     uint8_t level = 0;
     if (s_ir_dev.is_initialized) {
         level = (OOP_GPIO_READ_RAW(&s_ir_dev) == GPIO_PIN_SET) ? 1 : 0;
     }
 
-    SYS_LOG("IR1838B Status: enabled=%d, level=%u, edges=%u, ready=%d, irq=%lu, frame=%lu",
+    SYS_LOG("IR_Receiver Status: enabled=%d, level=%u, edges=%u, ready=%d, irq=%lu, frame=%lu",
             s_enabled,
             level,
             s_edge_cnt,
