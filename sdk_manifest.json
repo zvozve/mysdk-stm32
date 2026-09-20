@@ -938,7 +938,7 @@
       "layer": "services",
       "category": "ota",
       "version": "V1.0",
-      "updated": "2026-09-18",
+      "updated": "2026-09-20",
       "path": "services/ota_core",
       "description": "OTA 共用底座（BL 与 APP 共用）：分区表 schema + 目标区选择、状态区双份乒乓读写、.otapkg 包头解析与校验器接口、介质抽象、非阻塞步进式流程骨架。核心设计：「A/B 切换」与「单槽+暂存搬运」不是两套代码 —— 差异只在「RUN 有几条」（分区表数据）与「pending_action 取什么值」（状态区一个字段）；APP 侧两种拓扑完全共用。带 5 道校验关（逐包 / 内存累计 CRC / 读回 Flash 重算 CRC / CFG 乒乓提交 / BL 跳转前复算），其中「收到的对」与「落盘的对」分开做（第 2 关 vs 第 3 关）是最易漏的设计点。CRC-32/ISO-HDLC 参数写死（= zlib.crc32）。抬负缓冲由调用方提供，不动态分配。",
       "depends": [
@@ -965,7 +965,8 @@
         "services/ota_core/Src/ota_image.c",
         "services/ota_core/Src/ota_flow.c",
         "services/ota_core/Src/ota_core.c",
-        "services/ota_core/Src/ota_source.c"
+        "services/ota_core/Src/ota_source.c",
+        "services/ota_core/cmake/ota_slots.cmake"
       ]
     },
     {

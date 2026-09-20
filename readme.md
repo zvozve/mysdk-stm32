@@ -151,15 +151,22 @@ Cortex-M 是绝对寻址，「一个位置」就对应「一份二进制」，�
 | `TP_MDC_A.bin` | `0x08010000` / 448K | 进 A 槽 |
 | `TP_MDC_B.bin` | `0x08080000` / 512K | 进 B 槽 |
 
-做法：逻辑放进**工程根 `CMakeLists.txt`**（CubeMX 不重生成它；
-`cmake/gcc-arm-none-eabi.cmake` 会被重生成，不要改）：
+做法：逻辑全在 **SDK 侧** —— `library/services/ota_core/cmake/ota_slots.cmake`
+（随模块拉取到 `MySDK/services/ota_core/cmake/`），由 `<MySDK>/CMakeLists.txt` 末尾自动
+挂载。**工程根 `CMakeLists.txt` 不需要任何 OTA 槽相关内容**。
+
+`ota_slots.cmake` 内部：
 
 1. 由基版 `.ld` 派生三份 `.ld` 写到 `${CMAKE_BINARY_DIR}`（= 与 `.bin` 同目录）：
-   `TP_MDC.ld`（基版原样副本）+ `TP_MDC_A.ld` + `TP_MDC_B.ld`；
+   `<name>.ld`（基版原样副本）+ `<name>_A.ld` + `<name>_B.ld`；
 2. **先从 `CMAKE_EXE_LINKER_FLAGS` 里摘掉 toolchain 写死的 `-T <基版.ld>`** —— 否则
-   「全局 `-T` + 目标级 `-T`」会让 ld 看到两个同名 `MEMORY`（redeclaration 警告 + 段重复）；
-3. `add_executable` 建 base 目标，再用 `get_target_property(... SOURCES/LINK_LIBRARIES)`
-   把源与链接库复制给 `TP_MDC_A` / `TP_MDC_B`（自动跟随 CubeMX，不必手抄源列表）；
+   「全局 `-T` + 目标级 `-T`」会让 ld 看到两个同名 `MEMORY`（redeclaration 警告 + 段重复）。
+   实测这个修改**不受时机限制**：晚改对已创建的目标同样生效，所以能藏在子目录里做；
+3. 用 `cmake_language(DEFER DIRECTORY <工程根>)` 把「建 A/B 目标」推迟到**工程根目录处理
+   结束时**执行 —— 那时 base 目标的源/链接库才齐全（CubeMX 的源挂在
+   `cmake/stm32cubemx/` 子目录、用户源挂在工程根，太早复制会漏源）；随后用
+   `get_target_property(... SOURCES/LINK_LIBRARIES)` 复制给 `<name>_A` / `<name>_B`
+   （自动跟随 CubeMX，不必手抄源列表）；
 4. 每个目标 `target_link_options(-T <自己的.ld> -Wl,-Map=<自己>.map)` +
    `target_compile_definitions(OTA_SELF_BASE=<自己的基址>)`。
 
@@ -174,6 +181,18 @@ Cortex-M 是绝对寻址，「一个位置」就对应「一份二进制」，�
 烧录侧：`fw-flash.py` 会优先用「与 `.elf` 同目录的同名 `.ld`」解析地址 —— 所以 VSC 的
 `Flash` / `Flash Slot-A` / `Flash Slot-B` 三个任务只要换 `.elf`，**任务里不出现任何地址**。
 OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份镜像。
+
+### 3c. 多槽开关（都在 include `ota_slots.cmake` 之前 `set`）
+
+| 变量 | 作用 |
+|---|---|
+| `OTA_MULTISLOT` | `OFF` = 关掉整个多槽逻辑，只留 base 一份产物。**BL 工程必须设 OFF**（它是引导程序，多槽三分片是 APP 的事） |
+| `OTA_BASE_LD` | 基版链接脚本路径；默认在工程根自动找唯一的 `*.ld`（多于一份则 fail-fast） |
+| `OTA_SLOT_A_ORIGIN` / `OTA_SLOT_A_LENGTH` | 显式覆盖槽 A 几何（B 同理） |
+| `OTA_SELF_BASE_MACRO` | 注入应用层的「我在哪」宏名，默认 `OTA_SELF_BASE` |
+
+槽几何默认按**基版容量派生**（1MB → A = `+0x10000`/448K、B = `+0x80000`/512K，与工程分区表
+`User/Src/ota_areas.c` 对齐）；未知容量会 fail-fast 要求显式给出，绝不猜。
 
 ### 4. 增删模块
 
