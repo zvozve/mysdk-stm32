@@ -83,6 +83,12 @@ def main() -> int:
         print("[sdk_run] pack ->", script)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
+    if task == "ymodem":
+        # OTA 主机端：经 YMODEM 把固件包发给设备（配合 services.ota_src_uart）
+        script = os.path.join(tool_dir, "ota_ymodem.py")
+        print("[sdk_run] ymodem ->", script)
+        return subprocess.run([sys.executable, script, *rest]).returncode
+
     sys.exit("[sdk_run] 未知任务: %s" % task)
 
 
