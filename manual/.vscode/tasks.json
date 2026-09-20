@@ -44,7 +44,24 @@
             "problemMatcher": []
         },
         {
-            "label": "Pull SDK",
+            "label": "Flash APP",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "flash", "--slot", "A",
+                "${config:jlink.root}",
+                "${command:cmake.getLaunchTargetPath}",
+                "${config:jlink.device}",
+                "${config:jlink.interface}",
+                "${config:jlink.speed}",
+                "${workspaceFolder}"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "SDK PULL",
             "type": "shell",
             "command": "python",
             "args": [ "${workspaceFolder}/sdk_run.py", "pull" ],
@@ -53,7 +70,7 @@
             "problemMatcher": []
         },
         {
-            "label": "OOP Audit",
+            "label": "SDK Check OOP",
             "type": "shell",
             "command": "python",
             "args": [ "${workspaceFolder}/sdk_run.py", "audit" ],
@@ -62,7 +79,19 @@
             "problemMatcher": []
         },
         {
-            "label": "OTA YMODEM (Send)",
+            "label": "Format GBK 2 UTF-8",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "trans",
+                "${workspaceFolder}", "--recursive"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "OTA YMODEM",
             "type": "shell",
             "command": "python",
             "args": [

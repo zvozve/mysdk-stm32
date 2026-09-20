@@ -8,13 +8,23 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
 
 被 .vscode/tasks.json 调用，例如:
     python sdk_run.py flash [JLinkRoot] [ELF] [Device] [Interface] [Speed] [ProjRoot]
+    python sdk_run.py flash --slot A          # 烧 APP 到 slot A（@0x08010000，地址由 .ld 解析，不写死）
     python sdk_run.py pull
     python sdk_run.py audit
     python sdk_run.py trans <file> [...]
     python sdk_run.py pack --slot-a A.bin --slot-b B.bin --ver 1.2.3 -o dist/app.otapkg
+    python sdk_run.py ymodem [--port COMx] [--baud 115200] [--gui] build/ota_A/TP_MDC_A.bin
 
 说明: 本文件是「接口」不是「工具副本」——它不含任何 SDK 逻辑，只做
 「读配置 -> 调 SDK 工具」。工程从 SDK manual/ 拷贝到工程根即可。
+
+工具文件名（2026-09-20 统一）:
+    flash      -> tools/fw-flash.py
+    pull       -> tools/sdk-pull.py
+    audit      -> tools/sdk-check-oop.py
+    trans      -> tools/format-gbk2utf8.py
+    pack       -> tools/fw-ota-pack.py   （仅脚本保留，无 VSC 任务；raw-bin 流程下一般不再需要）
+    ymodem     -> tools/fw-ota-ymodem.py （直接发 raw .bin，设备侧自动选槽）
 """
 import os
 import sys
@@ -38,7 +48,7 @@ def sdk_root() -> str:
 
 def main() -> int:
     if len(sys.argv) < 2:
-        sys.exit("用法: sdk_run.py <flash|pull|audit|trans> [...]")
+        sys.exit("用法: sdk_run.py <flash|pull|audit|trans|pack|ymodem> [...]")
     try:
         # 任务面板里 SDK 侧日志要先于子进程输出出现（否则被缓冲顺序打乱）
         sys.stdout.reconfigure(line_buffering=True)
@@ -53,8 +63,10 @@ def main() -> int:
         # 只调 py 版：它能自检 J-Link 安装目录与 .ioc 器件名（规范化后交 J-Link 校验），
         # 并把检测结果写回 settings.json 供 cortex-debug 用 → 烧录/调试都不写死路径。
         # 位置参数 [JLROOT ELF DEV ITF SPEED PROJ]（空串=自动检测）；
-        # 另支持 --dry-run / --settings-only / --no-write-settings，见 flash.py --help。
-        py = os.path.join(tool_dir, "flash.py")
+        # 另支持 --slot A|B（自动选工程内 *slotA*.ld / *slotB*.ld）、
+        # --dry-run / --settings-only / --no-write-settings，见 fw-flash.py --help。
+        # 地址一律从 .ld 的 FLASH ORIGIN 解析，**禁止写死偏移/地址**。
+        py = os.path.join(tool_dir, "fw-flash.py")
         if not os.path.isfile(py):
             sys.exit("[sdk_run] 找不到 %s —— SDK 检出过旧（flash.bat 已废弃并删除），"
                      "请更新 SDK 检出" % py)
@@ -62,30 +74,32 @@ def main() -> int:
         return subprocess.run([sys.executable, py, *rest]).returncode
 
     if task == "pull":
-        script = os.path.join(tool_dir, "sync_lib.py")
+        script = os.path.join(tool_dir, "sdk-pull.py")
         toml = os.path.join(PROJ, "User", "sdk.toml")
         print("[sdk_run] pull ->", script)
         return subprocess.run([sys.executable, script, toml]).returncode
 
     if task == "audit":
-        script = os.path.join(tool_dir, "oop_audit.py")
+        script = os.path.join(tool_dir, "sdk-check-oop.py")
         print("[sdk_run] audit ->", script)
         return subprocess.run([sys.executable, script]).returncode
 
     if task == "trans":
-        script = os.path.join(tool_dir, "trans_gbk2utf-8.py")
+        script = os.path.join(tool_dir, "format-gbk2utf8.py")
         print("[sdk_run] trans ->", script, rest)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
     if task == "pack":
-        # OTA 固件打包（bin -> .otapkg）；产物路径由调用方用 -o 指定
-        script = os.path.join(tool_dir, "ota_pack.py")
+        # OTA 固件打包（bin -> .otapkg）；产物路径由调用方用 -o 指定。
+        # raw-bin 流程下一般不再需要此步（ymodem 直接发 .bin），脚本保留以备外挂 flash 暂存等场景。
+        script = os.path.join(tool_dir, "fw-ota-pack.py")
         print("[sdk_run] pack ->", script)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
     if task == "ymodem":
-        # OTA 主机端：经 YMODEM 把固件包发给设备（配合 services.ota_src_uart）
-        script = os.path.join(tool_dir, "ota_ymodem.py")
+        # OTA 主机端：经 YMODEM 把 **raw .bin** 发给设备（配合 services.ota_src_uart）。
+        # 设备侧自动选择非运行槽写入；不要发 .otapkg（自创格式，非行业通用）。
+        script = os.path.join(tool_dir, "fw-ota-ymodem.py")
         print("[sdk_run] ymodem ->", script)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
