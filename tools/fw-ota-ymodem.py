@@ -26,7 +26,7 @@ fw-ota-ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OT
     ymodem_check_frame 永远 NAK（旧脚本死循环的根因）。
 
 喂什么文件:
-  · **直接传 raw .bin**（行业通用格式，如 build/ota_A/TP_MDC_A.bin）。
+  · **直接传 raw .bin**（行业通用格式）。一般无需手动给 —— 不给文件时脚本会自动定位（见「用法」）。
     设备侧 ota_flow 自动识别裸 bin（无 .otapkg 头），整段即镜像，按 YMODEM 头包里的
     文件大小判「目标区放得下」，并自动选非运行槽写入。
   · 头包里的文件名仅作展示，设备只看文件大小判「目标区放得下」。
@@ -34,17 +34,19 @@ fw-ota-ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OT
 
 依赖: pyserial  (pip install pyserial)；--gui 另需 tkinter（通常随 Python 自带）。
 
-用法:
-  python fw-ota-ymodem.py dist/TP_MDC_A.bin              # 直接发 raw .bin（推荐，设备自动选槽）
-  python fw-ota-ymodem.py --port COM13 --baud 115200 dist/TP_MDC_A.bin
-  python fw-ota-ymodem.py --no-trigger --packet 128 dist/TP_MDC_A.bin   # 128 字节小包模式
-  python fw-ota-ymodem.py --gui                                        # 弹文件选择框（默认过滤 .bin）
-   python fw-ota-ymodem.py --gui --no-autoslot                          # 关掉自动挑槽（就发所选那份）
+用法（推荐：零交互，不给文件）:
+  python fw-ota-ymodem.py --port COM13
+      触发设备 -> 听它自报目标槽 `#OTA target=A|B` -> 在 --fw-root（默认当前目录，
+      VSC 任务里即工程根）下自动找「三分片家族」里对应的那一片发送。
+  python fw-ota-ymodem.py build/Release/TP_MDC_A.bin
+      显式给文件：设备仍会按公告把同目录镜像换成目标槽那份（随便给 A 或 B 都行）。
+  python fw-ota-ymodem.py --gui
+      兜底：只有自动定位失败（没找到家族 / 家族不唯一 / 旧固件不回报）才弹窗。
+  python fw-ota-ymodem.py --no-trigger --packet 128 <file>
+      128 字节小包模式；--no-autoslot 关闭自动挑槽（此时必须给文件）。
 
-  ★ 自动挑槽（默认开）：设备收到触发字节后会回报一行 `#OTA target=A|B`（它自己用
-    ota_area_select_target 算，会自动避开当前运行槽），脚本据此在同目录换成对应的那份
-    镜像（TP_MDC.bin <-> TP_MDC_A.bin <-> TP_MDC_B.bin）。所以弹窗里**随便选一个**都行，
-    「该发哪个槽」由设备决定，不靠人挑，更不写死地址。
+  ★ 自动挑槽（默认开）：目标槽由设备侧 ota_area_select_target() 算（自动避开当前
+    运行槽），主机只负责把对应文件找出来 —— 不选文件、不选分区、不写死地址。
 """
 import argparse
 import os
@@ -347,6 +349,63 @@ def find_sibling_fw(filepath, slot):
     return cand if os.path.isfile(cand) else None
 
 
+def auto_locate_fw(root, slot):
+    """
+    全自动定位固件：在 root 下找「三分片家族」，按设备要的槽取那一片。
+      · 家族 = 同一 base 的 <base>_A.bin + <base>_B.bin（如 TP_MDC_A/TP_MDC_B）；
+      · slot='A'/'B' -> 返回 <base>_<slot>.bin（多处命中取 mtime 最新的一处）；
+      · 返回 (path, None) 或 (None, 原因)。找不到绝不瞎猜 —— 上层要么报错要么弹窗兜底。
+    """
+    skip = {'.git', '.vs', '__pycache__', 'MySDK', 'Drivers', 'Middlewares'}
+    fam = {}                                  # base -> {'A': [path...], 'B': [path...]}
+    for dirpath, dirs, files in os.walk(root):
+        dirs[:] = [d for d in dirs if d not in skip]
+        for fn in files:
+            m = re.match(r'^(.+)_([AB])\.bin$', fn)
+            if m:
+                fam.setdefault(m.group(1), {}).setdefault(m.group(2), []).append(
+                    os.path.join(dirpath, fn))
+    if not fam:
+        return None, ("在 %s 下没找到 <base>_A.bin / <base>_B.bin"
+                      " —— 先用 VS Code 的 Build 产出三分片" % root)
+    if len(fam) > 1:
+        return None, ("找到多个固件家族（%s），无法确定发哪份"
+                      " —— 清掉旧产物，或用位置参数显式指定" % ", ".join(sorted(fam)))
+    base, slots = next(iter(fam.items()))
+    lst = slots.get(slot, [])
+    if not lst:
+        return None, "家族 %s 缺 %s 片（只有 %s）—— 重新 Build" % (
+            base, slot, "/".join(sorted(slots)))
+    lst.sort(key=lambda p: os.path.getmtime(p), reverse=True)
+    if len(lst) > 1:
+        print("[INFO] %s 命中 %d 处，取最新：%s" % (base, len(lst), lst[0]))
+    return lst[0], None
+
+
+def gui_pick_or_exit(allow_gui, hint=None):
+    """自动定位失败时的兜底：--gui 弹窗，否则带原因报错退出。"""
+    if not allow_gui:
+        msg = "[ota_ymodem] 无法自动定位固件"
+        if hint:
+            msg += "\n             原因: " + hint
+        msg += "\n             可用位置参数显式指定 <file>，或加 --gui 弹窗选择"
+        sys.exit(msg)
+    try:
+        from tkinter import Tk, filedialog
+    except ImportError:
+        sys.exit("[ota_ymodem] 自动定位失败且 tkinter 不可用（--gui 需要它）。原因: %s" % (hint or ""))
+    if hint:
+        print("[WARN] 自动定位失败：%s" % hint)
+        print("       退回文件选择框（设备仍会按公告自动换槽）")
+    Tk().withdraw()
+    fp = filedialog.askopenfilename(
+        title="选择 OTA 固件（优先 .bin；设备仍会自动换槽）",
+        filetypes=[("BIN 固件", "*.bin"), ("OTA 包", "*.otapkg"), ("All", "*.*")])
+    if not fp:
+        sys.exit("[ota_ymodem] 未选择文件")
+    return fp
+
+
 def pick_target_fw(ser, filepath, timeout=3.0):
     """
     问设备「你要收哪个槽」，据此自动挑同目录的另一份镜像。
@@ -393,31 +452,22 @@ def main() -> int:
                     help="关闭「元数据优先」（默认开）：不发 size+crc32 元数据、直接发 raw bin。"
                          "仅当设备固件是旧版（不支持「先收元数据」）时才需要")
     ap.set_defaults(meta=True)
-    ap.add_argument("--gui", action="store_true", help="未给 file 时用文件选择框（需 tkinter）")
+    ap.add_argument("--gui", action="store_true",
+                    help="自动定位失败时的兜底文件框（正常零交互，用不到）")
+    ap.add_argument("--fw-root", default=os.getcwd(),
+                    help="自动找固件的根目录（默认当前目录；VSC 任务里即工程根）")
     ap.add_argument("--no-autoslot", dest="autoslot", action="store_false",
-                    help="关闭「按设备自报的目标槽自动挑同目录镜像」（默认开）。"
-                         "设备不回报槽位时本开关无影响（本来就会回退为原样发送）")
+                    help="关闭自动挑槽/自动找固件（默认开）。关掉后必须用位置参数给文件"
+                         "（或 --gui 弹窗）；设备不回报槽位时按所选文件原样发送")
     ap.set_defaults(autoslot=True)
     args = ap.parse_args()
 
+    # ---- 文件解析：给位置参数 = 显式指定；不给 = 全自动（先听设备公告，再自动找文件）----
     filepath = args.file
-    if not filepath:
-        if args.gui:
-            try:
-                from tkinter import Tk, filedialog
-            except ImportError:
-                sys.exit("[ota_ymodem] 需要 tkinter 才能用 --gui；或改用 --file 指定文件")
-            Tk().withdraw()
-            filepath = filedialog.askopenfilename(
-                title="选择 OTA 固件（优先 .bin）",
-                filetypes=[("BIN 固件", "*.bin"), ("OTA 包", "*.otapkg"), ("All", "*.*")])
-            if not filepath:
-                sys.exit("[ota_ymodem] 未选择文件")
-        else:
-            sys.exit("用法: fw-ota-ymodem.py <file> [--port COMx] [--baud 115200] [--gui]")
-
-    if not os.path.isfile(filepath):
-        sys.exit("[ota_ymodem] 找不到文件: %s" % filepath)
+    late_pick = (filepath is None and args.autoslot)   # 零交互路径
+    if filepath is None and not late_pick:
+        # 关了自动挑槽又没给文件 → 不知道该发哪片，只能弹窗/报错
+        filepath = gui_pick_or_exit(args.gui, "已用 --no-autoslot 关闭自动挑槽，且未给文件")
 
     if args.no_trigger or not args.trigger:
         trigger = b''
@@ -437,14 +487,40 @@ def main() -> int:
         sys.exit("[ota_ymodem] 打不开串口 %s: %s" % (args.port, e))
 
     print("[OK] 串口 %s @ %d 已打开" % (args.port, args.baud))
+
+    if late_pick:
+        # ★ 零交互：触发设备 -> 听它自报目标槽 -> 在 --fw-root 下自动找那一片。
+        #   只有自动定位失败才落 --gui 弹窗；公告行读到 \n 即停，
+        #   设备紧随其后的握手 'C' 留在缓冲里，正好被下一段「等 'C'」接住。
+        if trigger:
+            ser.write(trigger)
+            print("[INFO] 已发送触发字节 %r，等待 %g s" % (trigger, args.trigger_delay))
+            time.sleep(args.trigger_delay)
+        slot = read_slot_announce(ser, 3.0)
+        if slot is None:
+            filepath = gui_pick_or_exit(args.gui, "设备未回报槽位（旧固件？），无法自动定位")
+        elif slot == "":
+            sys.exit("[ota_ymodem] 设备自报「没有可写入的目标槽」—— 当前固件不在槽内（如 base 版），OTA 无处可写")
+        else:
+            filepath, why = auto_locate_fw(args.fw_root, slot)
+            if filepath is None:
+                filepath = gui_pick_or_exit(args.gui, why)
+            print("[OK] 设备要槽 %s -> 自动选用 %s" % (slot, os.path.basename(filepath)))
+
+    if not os.path.isfile(filepath):
+        sys.exit("[ota_ymodem] 找不到文件: %s" % filepath)
+
+    # late_pick 已触发过、文件已按槽定好 → 不再重复触发、不再换槽
+    run_trigger = b'' if late_pick else trigger
+    run_autoslot = args.autoslot and not late_pick
     if args.meta:
-        rc = send_meta_first(ser, filepath, packet=args.packet, trigger=trigger,
+        rc = send_meta_first(ser, filepath, packet=args.packet, trigger=run_trigger,
                              wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
                              pkt_timeout=args.pkt_timeout, retry=args.retry,
                              post_c_delay=args.post_c_delay, debug=args.debug,
-                             autoslot=args.autoslot)
+                             autoslot=run_autoslot)
     else:
-        rc = ymodem_send(ser, filepath, packet=args.packet, trigger=trigger,
+        rc = ymodem_send(ser, filepath, packet=args.packet, trigger=run_trigger,
                          wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
                          pkt_timeout=args.pkt_timeout, retry=args.retry,
                          post_c_delay=args.post_c_delay, debug=args.debug)

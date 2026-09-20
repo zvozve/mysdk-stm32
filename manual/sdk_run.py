@@ -15,7 +15,8 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
     python sdk_run.py audit
     python sdk_run.py trans <file> [...]
     python sdk_run.py pack --slot-a A.bin --slot-b B.bin --ver 1.2.3 -o dist/app.otapkg
-    python sdk_run.py ymodem [--port COMx] [--baud 115200] [--gui] build/ota_A/TP_MDC_A.bin
+    python sdk_run.py ymodem [--port COMx] [--gui]   # 不给文件=全自动：设备自报目标槽 ->
+                                                     #   在工程根自动找对应分片；--gui 仅兜底
 
 说明: 本文件是「接口」不是「工具副本」——它不含任何 SDK 逻辑，只做
 「读配置 -> 调 SDK 工具」。工程从 SDK manual/ 拷贝到工程根即可。
