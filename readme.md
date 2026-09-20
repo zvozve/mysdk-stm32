@@ -110,7 +110,7 @@ python <SDK根>/tools/sync_lib.py <工程根>/User/sdk.toml --sdk <其他 SDK �
 1. 解析所选模块 `depends` 闭包（拓扑序）；引用了 manifest 不存在的模块直接报错退出。
 2. **先 `rmtree(dest)` 再整目录镜像** `library/<layer>/<module>/` → `dest/<layer>/<module>/`
    （手动改 `MySDK/` 会被清空，要改只能改 SDK 源仓后重新拉取）。
-3. 拷贝 SDK 根 `CMakeLists.txt` → `dest/CMakeLists.txt`（组件构建脚本）。
+3. 拷贝 SDK 载荷根 `library/CMakeLists.txt` → `dest/CMakeLists.txt`（组件构建脚本）；它就在各 layer 目录同级，故源仓内也能直接配置。
 4. `board_cfg.h` 仅在「读取 1 字节确认不存在」时生成模板（避免云端盘在线占位误覆盖）。
 5. 写 `dest/_sdk_sync.txt` 戳（SDK 版本 / 时间 / 模块清单）。
 
@@ -125,9 +125,36 @@ add_subdirectory(MySDK)               # 必须在其后（SDK 会自动 link stm
 target_link_libraries(<主目标> PRIVATE mystm32)  # 链接 SDK 静态库
 ```
 
-SDK 自带 `CMakeLists.txt` 用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所有 `*/Src/*.c`
+SDK 的 `library/CMakeLists.txt`（拉取后即 `MySDK/CMakeLists.txt`）用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所有 `*/Src/*.c`
 并 PUBLIC 导出各 `*/Inc`——**新增模块无需改清单**，下次构建自动重扫。
 非 CubeMX 工程需自行给 `mystm32` 注入 HAL 头路径与 `STM32Fxxx/USE_HAL_DRIVER` 宏。
+
+### 3b. 双槽 OTA 工程：链接期必须按槽生成链接脚本
+
+A/B 双槽 OTA 的 APP **必须在链接期**就链接到槽地址——Flash 只是把它放到那里。
+只把地址写进烧录脚本是不够的：`.bin` 内部不含地址，链接地址由 `-T` 的 `.ld` 决定，
+两者不一致的后果是 **BL 跳到槽、APP 起不来**（向量表的复位向量指回 BL 区）。
+
+典型现场：APP 被链接在 `0x08000000`（基版 `.ld`），却被烧到 `0x08010000`。
+判据：读 `.bin` 首 8 字节，第二个字是复位向量。
+
+```
+SP=0x20020000  Reset=0x0800C04D    链接在 0x08000000（错，与槽不符）
+SP=0x20020000  Reset=0x0801xxxx    链接在 0x08010000（对）
+```
+
+做法：逻辑放进**工程根 `CMakeLists.txt`**（CubeMX 不重生成它；
+`cmake/gcc-arm-none-eabi.cmake` 会被重生成，不要改）——在 `add_executable` **之前**
+读基版 `.ld`，按 `OTA_SLOT` 改写 FLASH 的 `ORIGIN/LENGTH`，写到
+`${CMAKE_BINARY_DIR}/STM32F407xx_FLASH_slot${OTA_SLOT}.ld`，再把
+`CMAKE_EXE_LINKER_FLAGS` 里的 `-T <基版.ld>` 换成这份生成物。
+
+- 地址**全部从 `.ld` 解析**（基版给几何、槽给偏移），不写死任何地址或偏移。
+- 根目录**不需要**预置 `slotA/slotB.ld`：编译用的生成物与 VSC「Flash APP」任务
+  （`fw-flash.py --slot A`，同样在 `build/` 生成一份）是**同一个源**。
+- 基版 `.ld` 的 `MEMORY` 行格式变了要 `FATAL_ERROR`，绝不静默错链。
+- 改了 `CMakeLists.txt` 必须**重新 configure**（不是只 rebuild），并在
+  `--print-memory-usage` 里确认 FLASH 区大小已变成该槽的大小（如 448K 而非 1024K）。
 
 ### 4. 增删模块
 

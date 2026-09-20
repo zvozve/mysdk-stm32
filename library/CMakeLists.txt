@@ -1,7 +1,12 @@
 # ============================================================
 # mystm32-sdk 组件构建脚本
 # ------------------------------------------------------------
-# 本文件属于 SDK 仓库，由 sync_lib.py 拉取到工程 <dest>/CMakeLists.txt，
+# 位置：本文件是 SDK 源仓的 <SDK>/library/CMakeLists.txt —— 也就是各 layer 目录
+#       (chip/ devices/ protocols/ services/ middleware/) 所在那一层的根。
+#       下面所有 GLOB 都用 ${CMAKE_CURRENT_SOURCE_DIR}（= 本文件所在目录）取路径，
+#       故它在源仓内与工程侧都成立（源仓可直接 cmake -S library -B build）。
+#
+# 本文件由 sdk-pull.py 拉取到工程 <dest>/CMakeLists.txt，
 # 随拉取自动更新；工程侧不要手工修改（会被下次拉取覆盖）。
 #
 # 工程侧接入（目录名与 sdk.toml 的 dest 保持一致）：
@@ -15,6 +20,24 @@
 # ============================================================
 
 add_library(mystm32 STATIC)
+
+# ---- 位置自检 ----
+# 本脚本必须与各 layer 目录同级（源仓 <SDK>/library/，或工程侧 <dest>/）。
+# 若一个 layer 目录都不存在，说明它被放错了位置 -> 立即报错退出，
+# 否则下面的 GLOB 会静默匹配 0 个文件，产出一个空的 mystm32 静态库（极难发现）。
+set(_mystm32_layer_found FALSE)
+foreach(_mystm32_layer chip devices middleware protocols services)
+    if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_mystm32_layer}")
+        set(_mystm32_layer_found TRUE)
+    endif()
+endforeach()
+if(NOT _mystm32_layer_found)
+    message(FATAL_ERROR
+        "mystm32: no layer dir (chip/ devices/ protocols/ services/ middleware/) under "
+        "${CMAKE_CURRENT_SOURCE_DIR}. "
+        "本 CMakeLists.txt 必须与各 layer 目录同级：源码中位于 <SDK>/library/，"
+        "工程侧由 sdk-pull.py 复制到 <dest>/（与 chip/ 同级）。")
+endif()
 
 # ---- 源文件（按 layer/module 组织：<layer>/<module>/Src/*.c）----
 # CONFIGURE_DEPENDS：拉取增删模块后，下次构建自动重扫源文件，无需手动重跑 cmake
