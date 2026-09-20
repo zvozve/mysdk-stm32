@@ -12,7 +12,10 @@ ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA �
   · CRC16-XMODEM（poly 0x1021，初值 0，大端），与固件侧 ymodem_crc16 一致。
   · 收包方先发 'C'(0x43) 表示「用 CRC16、请开始」；本脚本等 'C' 后才发头包。
   · EOT → 等 ACK → 再发一个**空第 0 包**（SOH/128）收尾 → 等 ACK → 完成。
-  · 收到 NAK / 额外的 'C' 就原样重发当前这包（不重新取数据）；收到 CAN CAN 即中止。
+  · 收到 NAK / 超时 → 原样重发当前这包（不重新取数据）；收到 CAN CAN → 中止。
+  · **'C' 是握手噪声，必须忽略**：接收侧在握手期会每 timeout_ms 重发 'C'，它不是
+    「重发信号」。若在 'C' 上重发，会把多份头包字节喂进同一帧缓冲，导致对端
+    ymodem_check_frame 永远 NAK（旧脚本死循环的根因）。
 
 喂什么文件:
   · 设备侧 ota_flow 按 services/ota_core 的包格式解析，所以**传 ota_pack.py 打好的
@@ -87,12 +90,27 @@ def wait_c(ser, timeout: float) -> bool:
     return False
 
 
-def send_packet(ser, seq, data, pkt_timeout, retry, label):
-    """发一包，等 ACK/NAK/C/CAN；超时或 NAK/C 时原样重发（最多 retry 次）。
-    返回 'ok' / 'abort'。注意：重发时 seq 不变（不重新取数据）。"""
+def send_packet(ser, seq, data, pkt_timeout, retry, label, debug=False):
+    """发一包，等 ACK/NAK/CAN；超时或 NAK 时原样重发（最多 retry 次）。
+    返回 'ok' / 'abort'。注意：重发时 seq 不变（不重新取数据）。
+
+    关键修正：接收侧在握手期会**周期性重发 'C'**（每 timeout_ms 一次，见
+    library/protocols/ymodem 的 recv_resend），这是噪声，绝不是「重发信号」。
+    所以这里**忽略 'C'**（以及其它非 ACK/NAK/CAN 的控制字节），只认：
+      · ACK   → 本包成功，推进
+      · NAK   → 对端没收到，原样重发
+      · CAN CAN → 对端中止
+      · 超时  → 原样重发
+    若把 'C' 当重发，会一边收 'C' 一边重发，把多份头包字节喂进同一帧缓冲，
+    导致对端 ymodem_check_frame 永远 NAK（这正是之前死循环的根因）。
+    """
     frame = build_frame(seq, data)
+    if debug:
+        print("  [DBG] %s seq=%d frame(%d)=%s" % (label, seq, len(frame), frame.hex()))
     for attempt in range(retry + 1):
         ser.write(frame)
+        if debug:
+            print("  [DBG] %s seq=%d -> 已发 %d 字节" % (label, seq, len(frame)))
         t0 = time.time()
         while time.time() - t0 < pkt_timeout:
             b = ser.read(1)
@@ -100,6 +118,8 @@ def send_packet(ser, seq, data, pkt_timeout, retry, label):
                 continue
             v = b[0]
             if v == ACK:
+                if debug:
+                    print("  [DBG] %s seq=%d <- ACK" % (label, seq))
                 return "ok"
             if v == CAN:
                 b2 = ser.read(1)
@@ -107,13 +127,18 @@ def send_packet(ser, seq, data, pkt_timeout, retry, label):
                     print("[ABORT] 收到 CAN CAN，对端已中止")
                     return "abort"
                 continue  # 单个 CAN 后可能紧跟第二个，继续等
-            if v == NAK or v == C:
+            if v == NAK:
+                if debug:
+                    print("  [DBG] %s seq=%d <- NAK" % (label, seq))
                 if attempt < retry:
-                    print("  [WARN] %s 包 seq=%d 收到 %s，原样重发"
-                          % (label, seq, "NAK" if v == NAK else "C"))
+                    print("  [WARN] %s 包 seq=%d 收到 NAK，原样重发" % (label, seq))
                     break  # 跳出内层，外层再发同一包
                 print("[FAIL] %s 包 seq=%d 重试用尽" % (label, seq))
                 return "abort"
+            # 'C'（握手噪声 / 旧 lrzsz 风格）及其它控制字节：忽略，继续等 ACK/NAK
+            if debug:
+                print("  [DBG] %s seq=%d <- 0x%02X(忽略)" % (label, seq, v))
+            continue
         # 内层超时（没收到任何响应）→ 外层循环再发
         if attempt < retry:
             print("  [WARN] %s 包 seq=%d 响应超时，原样重发" % (label, seq))
@@ -124,7 +149,8 @@ def send_packet(ser, seq, data, pkt_timeout, retry, label):
 
 
 def ymodem_send(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
-                c_timeout=10.0, pkt_timeout=5.0, retry=10):
+                c_timeout=10.0, pkt_timeout=5.0, retry=10, post_c_delay=0.05,
+                debug=False):
     filename = os.path.basename(filepath)
     filesize = os.path.getsize(filepath)
     print("[INFO] 文件 %s  大小 %d 字节 (%.1f KB)" % (filename, filesize, filesize / 1024.0))
@@ -142,13 +168,23 @@ def ymodem_send(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
         return 1
     print("[INFO] 收到 'C'，开始发送")
 
+    # 接收侧在握手期会周期重发 'C'（噪声）。等一小会把这些缓冲里的 'C' 清掉，
+    # 避免它们被当成头包的响应；即便没清干净，send_packet 也会忽略 'C'。
+    if post_c_delay > 0:
+        time.sleep(post_c_delay)
+    while True:
+        b = ser.read(1)
+        if b and b[0] == C:
+            continue
+        break
+
     # 头包（SOH/128）：文件名 + '\0' + 十进制大小
     hdr = bytearray()
     hdr += filename.encode()
     hdr.append(0)
     hdr += str(filesize).encode()
     hdr = hdr.ljust(DATA_128, b'\x00')
-    if send_packet(ser, 0, bytes(hdr), pkt_timeout, retry, "头") != "ok":
+    if send_packet(ser, 0, bytes(hdr), pkt_timeout, retry, "头", debug) != "ok":
         return 1
 
     # 数据包
@@ -175,17 +211,22 @@ def ymodem_send(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
     got_eot_ack = False
     while time.time() - t0 < pkt_timeout:
         b = ser.read(1)
-        if b and b[0] == ACK:
+        if not b:
+            continue
+        v = b[0]
+        if v == ACK:
             got_eot_ack = True
             break
-        if b and b[0] == CAN:
+        if v == CAN:
             print("[ABORT] EOT 后收到 CAN")
             return 1
+        # 'C' 等噪声忽略，继续等 ACK
+        continue
     if not got_eot_ack:
         print("[WARN] EOT 后未及时收到 ACK（仍发收尾包）")
 
     final = bytes(DATA_128)  # 全 0 的空第 0 包
-    if send_packet(ser, 0, final, pkt_timeout, retry, "收尾") != "ok":
+    if send_packet(ser, 0, final, pkt_timeout, retry, "收尾", debug) != "ok":
         return 1
 
     print("[OK] 发送完成")
@@ -197,7 +238,7 @@ def main() -> int:
         description="OTA 主机端：经 YMODEM 把固件包发给设备（配合 SDK services.ota_src_uart）",
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("file", nargs="?", help="要发送的 .otapkg（或原始 bin）")
-    ap.add_argument("-p", "--port", default="COM13", help="串口（默认 COM13）")
+    ap.add_argument("-p", "--port", default="COM1", help="串口（默认 COM1）")
     ap.add_argument("-b", "--baud", type=int, default=115200, help="波特率（默认 115200）")
     ap.add_argument("--packet", type=int, default=1024, choices=[128, 1024],
                     help="数据包长度（默认 1024=STX；128=SOH 小包）")
@@ -208,6 +249,11 @@ def main() -> int:
     ap.add_argument("--c-timeout", type=float, default=10.0, help="等 'C' 超时（默认 10 s）")
     ap.add_argument("--pkt-timeout", type=float, default=5.0, help="每包 ACK 超时（默认 5 s）")
     ap.add_argument("--retry", type=int, default=10, help="每包最大重发次数（默认 10）")
+    ap.add_argument("--post-c-delay", type=float, default=0.05,
+                    help="收到握手 'C' 后、发头包前的静默等待（默认 0.05 s），"
+                         "让设备清掉缓冲里的握手噪声 'C'")
+    ap.add_argument("--debug", action="store_true",
+                    help="打印每帧十六进制及接收到的原始响应字节，便于排查对端 NAK 真因")
     ap.add_argument("--gui", action="store_true", help="未给 file 时用文件选择框（需 tkinter）")
     args = ap.parse_args()
 
@@ -250,7 +296,8 @@ def main() -> int:
     print("[OK] 串口 %s @ %d 已打开" % (args.port, args.baud))
     rc = ymodem_send(ser, filepath, packet=args.packet, trigger=trigger,
                      wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
-                     pkt_timeout=args.pkt_timeout, retry=args.retry)
+                     pkt_timeout=args.pkt_timeout, retry=args.retry,
+                     post_c_delay=args.post_c_delay, debug=args.debug)
     ser.close()
     return rc
 
