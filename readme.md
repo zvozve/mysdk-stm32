@@ -1,4 +1,4 @@
-# mystm32-sdk
+# mysdk-stm32
 
 本仓库用于存放自建 STM32 SDK。
 
@@ -21,7 +21,7 @@
 ## 目录结构
 
 ```
-mystm32-sdk/
+mysdk-stm32/
 ├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
 │   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ oop_spi/ oop_flash/ oop_boot/ platform/
@@ -63,7 +63,7 @@ mystm32-sdk/
 ## 工程接入指南
 
 SDK 是单源真相仓库。通过 `tools/sdk-pull.py` 按 `sdk.toml` 选模块，把闭包子树镜像到
-工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mystm32` 静态库即可，换板只改
+工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mysdk` 静态库即可，换板只改
 `board_cfg.h`。
 
 > **`MySDK/` 必须提交进工程版本库**——详见下方「5. 注意事项 / 坑」。
@@ -85,7 +85,7 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 | 字段 | 含义 | 备注 |
 |---|---|---|
-| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mystm32-sdk`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库 |
+| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mysdk-stm32`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库 |
 | `dest` | 镜像目标目录 | 相对 toml 所在目录；根 CMakeLists 的 `add_subdirectory` 名必须与之一致 |
 | `board_cfg` | 绑定文件路径 | 仅首次生成模板；之后保留工程资产，不被覆盖 |
 | `[modules]` | 模块选择 | 写 `= true` 的模块，其 `depends` 由脚本递归补全；`external:*` 依赖跳过、由工程侧提供 |
@@ -141,12 +141,12 @@ python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --sdk <其他 SDK �
 add_subdirectory(cmake/stm32cubemx)   # 先 CubeMX（提供 HAL/RTOS 头与 stm32cubemx 接口目标）
 add_subdirectory(MySDK)               # 必须在其后（SDK 会自动 link stm32cubemx）
 # ...
-target_link_libraries(<主目标> PRIVATE mystm32)  # 链接 SDK 静态库
+target_link_libraries(<主目标> PRIVATE mysdk)  # 链接 SDK 静态库
 ```
 
 SDK 的 `library/CMakeLists.txt`（拉取后即 `MySDK/CMakeLists.txt`）用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所有 `*/Src/*.c`
 并 PUBLIC 导出各 `*/Inc`——**新增模块无需改清单**，下次构建自动重扫。
-非 CubeMX 工程需自行给 `mystm32` 注入 HAL 头路径与 `STM32Fxxx/USE_HAL_DRIVER` 宏。
+非 CubeMX 工程需自行给 `mysdk` 注入 HAL 头路径与 `STM32Fxxx/USE_HAL_DRIVER` 宏。
 
 ### 3b. 多槽 OTA 工程：一次 build 出三份（base / A / B）
 

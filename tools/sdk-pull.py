@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sdk-pull.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
+sdk-pull.py —— mysdk-stm32 子集拉取工具（SDK → 工程）
 
 用法:
     python sdk-pull.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
@@ -21,7 +21,7 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
     1. 读 sdk_manifest.json，解析所选模块的 depends 闭包（external:* 跳过）
     2. 整目录镜像拷贝 模块 → dest/<layer>/<module>/（先清掉 dest，保证单源真相）
     3. 拷贝 SDK 载荷根 CMakeLists.txt（<SDK>/library/CMakeLists.txt，与各 layer 同级）
-       工程侧 add_subdirectory(<dest>) + 链接 mystm32 目标即可，无需维护源文件清单
+       工程侧 add_subdirectory(<dest>) + 链接 mysdk 目标即可，无需维护源文件清单
     4. 生成 board_cfg.h 绑定模板（仅当文件不存在；具体引脚/句柄由工程填写）
     5. 写 dest/_sdk_sync.txt 戳（SDK 版本、时间、模块清单）
 """
@@ -202,7 +202,7 @@ extern "C" {
 
 
 def main():
-    ap = argparse.ArgumentParser(description="mystm32-sdk 子集拉取")
+    ap = argparse.ArgumentParser(description="mysdk-stm32 子集拉取")
     ap.add_argument("toml", help="工程 sdk.toml 路径")
     ap.add_argument("--sdk", help="覆盖 toml 中的 SDK 根目录")
     ap.add_argument("--dry-run", action="store_true")
@@ -295,7 +295,7 @@ def main():
     # 同步戳
     stamp = dest / "_sdk_sync.txt"
     stamp.write_text(
-        "此目录由 mystm32-sdk/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
+        "此目录由 mysdk-stm32/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
         "本目录随工程一并提交进版本库（不要 gitignore）：对拿到工程的人它就是源码的一部分。\n"
         f"SDK 版本 : {manifest['sdk']['version']}\n"
         f"拉取时间 : {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"

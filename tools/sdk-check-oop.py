@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sdk-check-oop.py — mystm32-sdk HAL 泄漏检查器
+sdk-check-oop.py — mysdk-stm32 HAL 泄漏检查器
 
 原则：SDK 是单源真相、板无关。任何模块都不得：
   1. 包含 CubeMX 生成的工程头（main.h / tim.h / gpio.h / usart.h /

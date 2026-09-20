@@ -47,7 +47,7 @@ CH374_Bind(&hspi2,
 ---
 ## V2.0
 	2026-09-17
-	按 oop 分层迁移进 mystm32-sdk：删 bsp_*/main.h 依赖，SPI 改走 oop_spi（多实例，
+	按 oop 分层迁移进 mysdk-stm32：删 bsp_*/main.h 依赖，SPI 改走 oop_spi（多实例，
 	与 CH9434 的 hspi3 并存）、CS/INT/USB 电源走 oop_gpio、延时走 oop_dwt；
 	引脚与句柄由 CH374_Bind() 注入；原 GPIO_Toggle_INIT() 并入 CH374_Bind()；
 	调试输出统一改投 SEGGER_RTT（不再依赖 libc printf 重定向）。
