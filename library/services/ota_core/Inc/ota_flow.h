@@ -143,6 +143,32 @@ uint8_t ota_flow_progress(const ota_flow_t *f);
 /** @brief 中止（关闭源、置 FAILED） */
 int ota_flow_abort(ota_flow_t *f);
 
+/** @brief 预擦除记录（`ota_flow_pre_erase()` 的产出） */
+typedef struct {
+    uint8_t  slot;   /*!< 目标槽号 */
+    uint32_t off;    /*!< 目标区在介质内的起始偏移 */
+    uint32_t span;   /*!< 已擦除的字节数 */
+} ota_pre_erase_t;
+
+/**
+ * @brief  传输前**预擦除**目标区（在主机尚未开始灌数据时调用）
+ * @param  running_slot 当前运行槽（自动选另一个槽）
+ * @param  image_size   镜像字节数（用于算擦除终点，与 do_decide 同一套算法）
+ * @param  out          可 NULL；成功时回填本次擦除的槽/偏移/长度
+ * @return OTA_OK / OTA_ERR_PARAM / OTA_ERR_NO_AREA / OTA_ERR_NOSPACE / OTA_ERR_MEDIA
+ *
+ * @note **为什么必须预擦**：扇区擦除（F4 128 KB 扇区约 1 s）会把应用阻塞住，
+ *       而流式源（串口）的收发缓冲通常只有一个帧的余量。等主机开始灌数据再擦，
+ *       擦除期间到达的字节会被丢掉，接收方在下一次读取时拿到的是「半帧 + 新帧头」
+ *       的拼接 —— YMODEM 解析器一旦落在错的帧边界上就会永远 NAK，直到重试用尽
+ *       （现象：`rc=-9 OTA_ERR_SOURCE`，进度停在 0%）。
+ *       在「主机还在等握手 'C'」的空档里擦就完全没有这个问题，代价只是握手慢 1~2 s。
+ *
+ *       `ota_flow` 的 ERASE 阶段会核对本函数登记过的区间并**跳过重复擦除**；
+ *       若流程最终选了别的区间（或没调本函数），ERASE 阶段照常自己擦。
+ */
+int ota_flow_pre_erase(uint8_t running_slot, uint32_t image_size, ota_pre_erase_t *out);
+
 /** @brief 状态名（日志用） */
 const char *ota_flow_state_name(ota_flow_state_t s);
 

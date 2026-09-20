@@ -59,6 +59,10 @@ extern "C" {
 
 #define YMODEM_DEF_RETRY      10u
 #define YMODEM_DEF_TIMEOUT_MS 1000u
+/* 半帧保护：一帧收到一半就断流，超过这个间隙就把残帧丢弃并 NAK。
+ * 一帧最长 1029 B ≈ 89 ms @115200，500 ms 足够宽容出「应用短暂阻塞」的正常情形，
+ * 又能保证「失步」不会变成永久 NAK。 */
+#define YMODEM_INFRAME_GAP_MS 500u
 
 /* ---------------- 返回码 ---------------- */
 
