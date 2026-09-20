@@ -8,6 +8,10 @@
 #include <string.h>
 #include "ota_flow.h"
 
+/* 预擦登记：由 ota_flow_pre_erase() 填写，do_decide 据此跳过重复擦除。
+ * span == 0 表示无有效登记。 */
+static ota_pre_erase_t s_pre;
+
 /* ---------------- 内部工具 ---------------- */
 
 static void flow_fail(ota_flow_t *f, ota_ret_t err)
@@ -211,6 +215,14 @@ static void do_decide(ota_flow_t *f)
     area_end = f->tgt.target->base + f->tgt.target->size;
     if (f->erase_end > area_end) {
         f->erase_end = area_end;
+    }
+
+    /* 已在预擦阶段擦过同一区间 → 直接跳过 ERASE，避免在主机灌数据期间再阻塞 ~1s */
+    if (s_pre.span != 0u && s_pre.off == f->dst_off
+        && s_pre.span >= (f->erase_end - f->dst_off)) {
+        f->erase_cur = f->erase_end;
+        f->erased    = f->erase_end - f->dst_off;
+        s_pre.span   = 0u;                    /* 一次有效，防止跨次误跳过 */
     }
 
     ota_verifier_crc32(&f->v_mem, &f->st_mem, f->seg.crc32);
@@ -434,6 +446,60 @@ static void do_commit(ota_flow_t *f)
 
     f->state = OTA_FLOW_DONE;
     flow_report(f);
+}
+
+/* ---------------- 预擦除（见 ota_flow_pre_erase 的说明） ---------------- */
+
+int ota_flow_pre_erase(uint8_t running_slot, uint32_t image_size, ota_pre_erase_t *out)
+{
+    ota_target_t      tgt;
+    const ota_flash_t *fl;
+    uint32_t          off;
+    uint32_t          end;
+    uint32_t          unit;
+    uint32_t          area_end;
+    ota_ret_t         rc;
+
+    if (image_size == 0u) {
+        return OTA_ERR_PARAM;
+    }
+
+    rc = ota_area_select_target(running_slot, &tgt);
+    if (rc != OTA_OK) {
+        return rc;
+    }
+    if (image_size > tgt.target->size) {
+        return OTA_ERR_NOSPACE;
+    }
+
+    fl = ota_area_flash(tgt.target);
+    if (fl == NULL || ota_flash_check(fl) != OTA_OK) {
+        return OTA_ERR_MEDIA;
+    }
+
+    /* 与 do_decide 完全相同的擦除区间算法：按擦除单位上取整，但不越过区末端 */
+    off      = tgt.target->base;
+    end      = off + image_size;
+    unit     = ota_flash_erase_unit(fl, off);
+    if (unit != 0u && (end % unit) != 0u) {
+        end += unit - (end % unit);
+    }
+    area_end = tgt.target->base + tgt.target->size;
+    if (end > area_end) {
+        end = area_end;
+    }
+
+    if (fl->erase(fl->ctx, off, end - off) != OTA_OK) {
+        return OTA_ERR_MEDIA;
+    }
+
+    s_pre.slot = tgt.target_slot;
+    s_pre.off  = off;
+    s_pre.span = end - off;
+    if (out != NULL) {
+        *out = s_pre;
+    }
+    return OTA_OK;
 }
 
 /* ---------------- 对外接口 ---------------- */

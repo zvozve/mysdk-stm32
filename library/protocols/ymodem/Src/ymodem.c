@@ -401,6 +401,19 @@ int ymodem_recv_process(ymodem_recv_t *y)
         return y->err;
     }
 
+    /* ★ 半帧保护：帧收到一半就断了（对端重发被打断 / 应用长时间阻塞导致丢字节 /
+     *   流被拼接），残帧留在缓冲里会让后面每个字节都错位 —— 现象是「一直 NAK，
+     *   直到重试用尽」。超过一个帧间隙还没补齐，就丢掉残帧并 NAK，让对端重发整帧。
+     *   NAK（而不是重发上次的 ACK）很关键：重发 ACK 会让对端以为这一包已收下，
+     *   于是数据被静默丢掉。 */
+    if (y->fill != 0u &&
+        (uint32_t)(y->io->tick(y->io->ctx) - y->t_ref) >= YMODEM_INFRAME_GAP_MS) {
+        y->fill   = 0u;
+        y->expect = 0u;
+        send_resp(y, YMODEM_NAK);
+        y->t_ref = y->io->tick(y->io->ctx);   /* 给对端一个完整的重发窗口 */
+    }
+
     recv_feed(y);
     if (y->st == YMODEM_RECV_DONE) {
         return YMODEM_OK;
