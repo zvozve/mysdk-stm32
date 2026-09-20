@@ -74,7 +74,8 @@ static void do_open(ota_flow_t *f)
     if (info.fw_ver != 0u) {
         f->fw_ver = info.fw_ver;
     }
-    f->src_total = info.total_size;
+    f->src_total    = info.total_size;
+    f->expect_crc32 = info.expect_crc32;      /* 0 = 无外部 CRC（退回自校） */
 
     f->state = OTA_FLOW_HDR;
     flow_report(f);
@@ -160,7 +161,8 @@ static void do_decide(ota_flow_t *f)
         }
         f->seg.load_addr = load_addr;
         f->seg.size      = f->src_total;
-        f->seg.crc32     = 0u;              /* 无外部 CRC；第 2 关改为「内存 CRC == 闪存 CRC」 */
+        /* 有元数据（元数据优先）→ 用外部期望 CRC32；否则 0，第 2/3 关退回自校 */
+        f->seg.crc32     = f->expect_crc32;
         f->data_off      = 0u;
     } else {
         rc = ota_image_find_seg(&f->hdr, load_addr, &seg, &f->data_off);
@@ -320,9 +322,10 @@ static void do_verify_mem(ota_flow_t *f)
     int rc;
 
     if (f->raw) {
-        /* 裸 bin 无外部 CRC 可比对，第 2 关只累计内存 CRC，留待与第 3 关（闪存回读）互校 */
+        /* 裸 bin：有外部期望 CRC（元数据优先）就在第 2 关直接比对，能发现源文件本身损坏；
+         * 没有就只累计内存 CRC，留待第 3 关与闪存回读互校。 */
         f->crc_mem = f->st_mem.running;
-        rc = OTA_OK;
+        rc = (f->seg.crc32 != 0u) ? f->v_mem.finish(f->v_mem.ctx) : OTA_OK;
     } else {
         /* 第 2 关：内存累计 CRC + 长度，与包头段表里的 CRC32 比对。证明「收到的报文对」 */
         rc = f->v_mem.finish(f->v_mem.ctx);
@@ -347,9 +350,14 @@ static void do_verify_flash(ota_flow_t *f)
         int rc;
 
         if (f->raw) {
-            /* 裸 bin：第 3 关读回 CRC 与第 2 关内存 CRC 互校，证明「落到 Flash 的字节对」 */
             f->crc_flash = f->st_flash.running;
-            rc = (f->crc_flash == f->crc_mem) ? OTA_OK : OTA_ERR_VERIFY;
+            if (f->seg.crc32 != 0u) {
+                /* 有外部期望 CRC：读回 CRC 直接与它比对（同时覆盖「报文对」与「落盘对」） */
+                rc = f->v_flash.finish(f->v_flash.ctx);
+            } else {
+                /* 无外部 CRC：读回 CRC 与第 2 关内存 CRC 互校，证明「落到 Flash 的字节对」 */
+                rc = (f->crc_flash == f->crc_mem) ? OTA_OK : OTA_ERR_VERIFY;
+            }
         } else {
             /* 第 3 关：读回 Flash 重算 CRC，与包头段表 CRC32 比对。证明「落到 Flash 的字节对」 */
             rc = f->v_flash.finish(f->v_flash.ctx);

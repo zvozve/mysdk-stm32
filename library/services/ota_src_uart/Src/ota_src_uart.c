@@ -106,6 +106,12 @@ static int on_header(void *user, const ymodem_file_t *f)
     ota_src_uart_t *u = (ota_src_uart_t *)user;
     uint32_t        limit;
 
+    /* 元数据优先：bin 声明的大小必须与元数据的 size 一致
+     * （不一致 = 发错文件 / 选错 bin，早拒比收完再发现好） */
+    if (u->exp_size != 0u && f->size != 0u && f->size != u->exp_size) {
+        return -1;
+    }
+
     u->info.total_size = f->size;
     u->info.fw_ver     = 0u;
 
@@ -141,6 +147,137 @@ static void on_event(void *user, ymodem_event_t ev, uint32_t arg)
     (void)arg;
 }
 
+/* ---------------- 元数据优先（方案 2） ---------------- */
+
+/**
+ * @brief 元数据会话的头包回调：只接受**恰好 8 字节**（size+crc32），否则拒收
+ * @note  长度不对 = 对端没按「先发元数据」来（或直接发了 bin），拒收比误当成
+ *        元数据去解析要好得多。
+ */
+static int meta_on_header(void *user, const ymodem_file_t *f)
+{
+    ota_src_uart_t *u = (ota_src_uart_t *)user;
+
+    if (f->size != 8u) {
+        return -1;
+    }
+    u->meta_len = 0u;
+    return 0;
+}
+
+static int meta_on_data(void *user, const uint8_t *data, uint32_t len)
+{
+    ota_src_uart_t *u = (ota_src_uart_t *)user;
+    uint32_t        i;
+
+    /* 数据包会被填充到 128/1024 字节，只留前 8 个 */
+    for (i = 0u; i < len && u->meta_len < 8u; i++) {
+        u->meta_buf[u->meta_len++] = data[i];
+    }
+    return 0;
+}
+
+static void meta_on_event(void *user, ymodem_event_t ev, uint32_t arg)
+{
+    (void)user;
+    (void)ev;
+    (void)arg;
+}
+
+int ota_src_uart_meta_start(ota_src_uart_t *u)
+{
+    if (u == NULL) {
+        return OTA_ERR_PARAM;
+    }
+
+    u->meta_len          = 0u;
+    u->meta_done         = 0u;
+    u->meta_err          = 0;
+    u->meta_active       = 1u;
+    u->meta_t0           = u->tick(u->tick_ctx);
+    u->exp_size          = 0u;      /* 清掉上一轮的期望值，避免误用 */
+    u->info.expect_crc32 = 0u;
+    u->info.total_size   = 0u;
+
+    if (ymodem_recv_start(&u->ym, &u->io, u, meta_on_header, meta_on_data, meta_on_event)
+        != YMODEM_OK) {
+        u->meta_active = 0u;
+        return OTA_ERR_SOURCE;
+    }
+    return OTA_OK;
+}
+
+int ota_src_uart_meta_poll(ota_src_uart_t *u)
+{
+    int r;
+
+    if (u == NULL) {
+        return -1;
+    }
+    if (u->meta_done != 0u) {
+        return 1;
+    }
+    if (u->meta_active == 0u) {
+        return -1;
+    }
+
+    r = ymodem_recv_process(&u->ym);
+    if (r == YMODEM_OK) {
+        uint32_t sz;
+        uint32_t cr;
+
+        if (u->meta_len < 8u) {
+            u->meta_active = 0u;
+            u->meta_err    = (int8_t)OTA_ERR_SOURCE;
+            return -1;
+        }
+        sz = (uint32_t)u->meta_buf[0]
+           | ((uint32_t)u->meta_buf[1] << 8)
+           | ((uint32_t)u->meta_buf[2] << 16)
+           | ((uint32_t)u->meta_buf[3] << 24);
+        cr = (uint32_t)u->meta_buf[4]
+           | ((uint32_t)u->meta_buf[5] << 8)
+           | ((uint32_t)u->meta_buf[6] << 16)
+           | ((uint32_t)u->meta_buf[7] << 24);
+
+        u->exp_size          = sz;        /* bin 段 on_header 交叉校验用 */
+        u->info.total_size   = sz;
+        u->info.expect_crc32 = cr;        /* ota_flow 据此校验整段镜像 */
+        u->meta_done         = 1u;
+        u->meta_active       = 0u;
+        return 1;
+    }
+    if (r < 0) {
+        u->meta_active = 0u;
+        u->meta_err    = (int8_t)r;
+        return -1;
+    }
+
+    /* 超时保护：'U' 之后迟迟收不到元数据就不死等 */
+    if ((uint32_t)(u->tick(u->tick_ctx) - u->meta_t0) >= OTA_SRC_UART_META_TIMEOUT_MS) {
+        u->meta_active = 0u;
+        u->meta_err    = (int8_t)OTA_ERR_SOURCE;
+        return -1;
+    }
+    return 0;
+}
+
+void ota_src_uart_meta_get(const ota_src_uart_t *u, ota_src_uart_meta_t *out)
+{
+    if (out == NULL) {
+        return;
+    }
+    out->size  = 0u;
+    out->crc32 = 0u;
+    if (u == NULL || u->meta_done == 0u || u->meta_len < 8u) {
+        return;
+    }
+    out->size  = (uint32_t)u->meta_buf[0] | ((uint32_t)u->meta_buf[1] << 8)
+               | ((uint32_t)u->meta_buf[2] << 16) | ((uint32_t)u->meta_buf[3] << 24);
+    out->crc32 = (uint32_t)u->meta_buf[4] | ((uint32_t)u->meta_buf[5] << 8)
+               | ((uint32_t)u->meta_buf[6] << 16) | ((uint32_t)u->meta_buf[7] << 24);
+}
+
 /* ---------------- ota_source_t 实现 ---------------- */
 
 static int src_open(void *ctx, ota_src_info_t *info)
@@ -156,7 +293,10 @@ static int src_open(void *ctx, ota_src_info_t *info)
     u->pkt_off   = 0u;
     u->finished  = 0u;
     u->err       = 0;
-    u->info.total_size = 0u;
+    /* 流式源在 open 时本拿不到总大小 —— 大小只能靠「元数据优先」段先告知
+     * （见 ota_src_uart_meta_start/poll 填的 exp_size）。没有元数据（0）时保持 0：
+     * 此时裸 bin 无法定长（用 .otapkg 包则包头自带长度，不受影响）。 */
+    u->info.total_size = u->exp_size;
     u->info.fw_ver     = 0u;
     u->info.seekable   = 0u;              /* 流式：不能回退 */
 
@@ -242,6 +382,36 @@ static int src_read(void *ctx, void *buf, uint32_t len, uint32_t *got)
         }
         if ((uint32_t)(u->tick(u->tick_ctx) - t0) >= u->poll_timeout_ms) {
             break;                       /* 等太久了 */
+        }
+    }
+
+    /* 声明长度已全部送达 → 在本模块内把 YMODEM 收尾（EOT + 空第 0 包）走完。
+     * 上游 ota_flow 收满声明长度就不再调 read，若不在这里补这一步，对端发完数据后
+     * 会等不到 ACK 而一直重试（收尾握手是本模块的协议职责，不该上抛给 ota_flow）。 */
+    if (n > 0u && u->finished == 0u && u->err == 0
+        && u->ym.file.size != 0u && u->ym.got >= u->ym.file.size) {
+        uint32_t t1 = u->tick(u->tick_ctx);
+
+        while (u->finished == 0u && u->err == 0) {
+            int r = ymodem_recv_process(&u->ym);
+
+            if (r == YMODEM_OK) {
+                u->finished = 1u;
+                break;
+            }
+            if (r < 0) {
+                u->err = (int8_t)r;
+                break;
+            }
+            if (u->pkt_len != 0u) {
+                break;                       /* 不该再有数据；交给下一轮 */
+            }
+            if (u->idle != NULL && u->idle(u->idle_user) != 0) {
+                break;
+            }
+            if ((uint32_t)(u->tick(u->tick_ctx) - t1) >= u->poll_timeout_ms) {
+                break;                       /* 对端迟迟不发收尾，别死等 */
+            }
         }
     }
 

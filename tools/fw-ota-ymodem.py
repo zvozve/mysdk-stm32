@@ -4,7 +4,15 @@
 ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA 服务端 / 发送侧）
 
 配合 SDK 的 services.ota_src_uart（设备侧 YMODEM 接收）使用。设备侧是接收方，
-本脚本是「服务端」：负责把 .otapkg 推下去。
+本脚本是「服务端」：负责把 **raw .bin** 推下去（不再用自创的 .otapkg 格式——行业通用
+的裸 bin 即可，设备侧自动选非运行槽写入）。
+
+传输顺序（默认「元数据优先」，方案 2）：
+  · 第 1 段：8 字节元数据文件 = size(u32 LE) + crc32(u32 LE)
+    （crc32 与设备 ota_crc32 完全一致，即 CRC-32/ISO-HDLC = zlib.crc32）
+  · 第 2 段：固件本体 raw .bin
+  设备先收元数据 → 提前按 size 判目标区放得下、按 crc32 校验整段镜像（而非只做
+  「内存 CRC == 闪存 CRC」自比，可发现 PC 端 bin 本身损坏）。`--no-meta` 退回单段 raw bin。
 
 协议要点（必须与 SDK library/protocols/ymodem 的接收侧一致）:
   · 头包用 SOH(0x01) + 128 字节数据；数据包用 STX(0x02) + 1024 字节（默认）。
@@ -18,22 +26,26 @@ ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA �
     ymodem_check_frame 永远 NAK（旧脚本死循环的根因）。
 
 喂什么文件:
-  · 设备侧 ota_flow 按 services/ota_core 的包格式解析，所以**传 ota_pack.py 打好的
-    .otapkg**（串口是流式源，建议单段包：ota_pack.py --slot a --bin ...）。
+  · **直接传 raw .bin**（行业通用格式，如 build/ota_A/TP_MDC_A.bin）。
+    设备侧 ota_flow 自动识别裸 bin（无 .otapkg 头），整段即镜像，按 YMODEM 头包里的
+    文件大小判「目标区放得下」，并自动选非运行槽写入。
   · 头包里的文件名仅作展示，设备只看文件大小判「目标区放得下」。
+  · 旧的 .otapkg 仍兼容（设备侧按 magic 自动识别），但新流程不再需要 ota_pack.py 打包。
 
 依赖: pyserial  (pip install pyserial)；--gui 另需 tkinter（通常随 Python 自带）。
 
 用法:
-  python ota_ymodem.py dist/app.otapkg
-  python ota_ymodem.py --port COM13 --baud 115200 dist/app.otapkg
-  python ota_ymodem.py --no-trigger --packet 128 dist/app.otapkg   # 128 字节小包模式
-  python ota_ymodem.py --gui                                        # 弹文件选择框
+  python ota_ymodem.py dist/TP_MDC_A.bin              # 直接发 raw .bin（推荐，设备自动选槽）
+  python ota_ymodem.py --port COM13 --baud 115200 dist/TP_MDC_A.bin
+  python ota_ymodem.py --no-trigger --packet 128 dist/TP_MDC_A.bin   # 128 字节小包模式
+  python ota_ymodem.py --gui                                        # 弹文件选择框（默认过滤 .bin）
 """
 import argparse
 import os
+import struct
 import sys
 import time
+import zlib
 
 # 协议常量（与 library/protocols/ymodem/Inc/ymodem.h 对齐）
 SOH = 0x01
@@ -233,11 +245,59 @@ def ymodem_send(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
     return 0
 
 
+def send_meta_first(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
+                    c_timeout=10.0, pkt_timeout=5.0, retry=10, post_c_delay=0.05,
+                    debug=False):
+    """
+    元数据优先模式（--meta）：先发一个 8 字节元数据文件（size(u32 LE) + crc32(u32 LE)），
+    再发真正的 bin。设备先收元数据、记住「期望大小 + 期望 CRC32」，随后收 bin 时即可：
+      · 提前按 size 判目标区放得下（不必等整包收完才发觉空间不足）；
+      · 收完按记下的 CRC32 校验（而非仅「内存 CRC == 闪存 CRC」自比），
+        从而能发现 PC 端 bin 本身已损坏的情况。
+    CRC32 与设备侧 ota_crc32 完全一致（CRC-32/ISO-HDLC = zlib.crc32）。
+    注意：设备固件需支持「先收元数据」模式（两段 YMODEM）；未支持时请用普通模式。
+    """
+    size = os.path.getsize(filepath)
+    crc = 0
+    with open(filepath, "rb") as f:
+        while True:
+            chunk = f.read(4096)
+            if not chunk:
+                break
+            crc = zlib.crc32(chunk, crc)
+    crc &= 0xFFFFFFFF
+    print("[INFO] 固件 size=0x%X (%d B)  crc32=0x%08X" % (size, size, crc))
+
+    import tempfile
+    meta = struct.pack("<II", size, crc)          # size(u32 LE) + crc32(u32 LE)
+    tf = tempfile.NamedTemporaryFile(suffix=".meta", delete=False)
+    tf.write(meta)
+    tf.close()
+    kw = dict(packet=packet, trigger=b"", wait_trigger=0.0,
+              c_timeout=c_timeout, pkt_timeout=pkt_timeout, retry=retry,
+              post_c_delay=post_c_delay, debug=debug)
+    try:
+        if trigger:
+            ser.write(trigger)
+            print("[INFO] 已发送触发字节 %r，等待 %g s" % (trigger, wait_trigger))
+            time.sleep(wait_trigger)
+        print("[INFO] >>> 第 1 段：元数据 (size + crc32)")
+        if ymodem_send(ser, tf.name, **kw) != 0:
+            return 1
+        print("[INFO] >>> 第 2 段：固件本体 bin")
+        return ymodem_send(ser, filepath, **kw)
+    finally:
+        try:
+            os.unlink(tf.name)
+        except OSError:
+            pass
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(
         description="OTA 主机端：经 YMODEM 把固件包发给设备（配合 SDK services.ota_src_uart）",
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("file", nargs="?", help="要发送的 .otapkg（或原始 bin）")
+    ap.add_argument("file", nargs="?", help="要发送的固件（优先 .bin；也可 .otapkg）")
     ap.add_argument("-p", "--port", default="COM1", help="串口（默认 COM1）")
     ap.add_argument("-b", "--baud", type=int, default=115200, help="波特率（默认 115200）")
     ap.add_argument("--packet", type=int, default=1024, choices=[128, 1024],
@@ -254,6 +314,10 @@ def main() -> int:
                          "让设备清掉缓冲里的握手噪声 'C'")
     ap.add_argument("--debug", action="store_true",
                     help="打印每帧十六进制及接收到的原始响应字节，便于排查对端 NAK 真因")
+    ap.add_argument("--no-meta", dest="meta", action="store_false",
+                    help="关闭「元数据优先」（默认开）：不发 size+crc32 元数据、直接发 raw bin。"
+                         "仅当设备固件是旧版（不支持「先收元数据」）时才需要")
+    ap.set_defaults(meta=True)
     ap.add_argument("--gui", action="store_true", help="未给 file 时用文件选择框（需 tkinter）")
     args = ap.parse_args()
 
@@ -266,8 +330,8 @@ def main() -> int:
                 sys.exit("[ota_ymodem] 需要 tkinter 才能用 --gui；或改用 --file 指定文件")
             Tk().withdraw()
             filepath = filedialog.askopenfilename(
-                title="选择 OTA 固件包",
-                filetypes=[("OTA 包", "*.otapkg"), ("BIN", "*.bin"), ("All", "*.*")])
+                title="选择 OTA 固件（优先 .bin）",
+                filetypes=[("BIN 固件", "*.bin"), ("OTA 包", "*.otapkg"), ("All", "*.*")])
             if not filepath:
                 sys.exit("[ota_ymodem] 未选择文件")
         else:
@@ -294,10 +358,16 @@ def main() -> int:
         sys.exit("[ota_ymodem] 打不开串口 %s: %s" % (args.port, e))
 
     print("[OK] 串口 %s @ %d 已打开" % (args.port, args.baud))
-    rc = ymodem_send(ser, filepath, packet=args.packet, trigger=trigger,
-                     wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
-                     pkt_timeout=args.pkt_timeout, retry=args.retry,
-                     post_c_delay=args.post_c_delay, debug=args.debug)
+    if args.meta:
+        rc = send_meta_first(ser, filepath, packet=args.packet, trigger=trigger,
+                             wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
+                             pkt_timeout=args.pkt_timeout, retry=args.retry,
+                             post_c_delay=args.post_c_delay, debug=args.debug)
+    else:
+        rc = ymodem_send(ser, filepath, packet=args.packet, trigger=trigger,
+                         wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
+                         pkt_timeout=args.pkt_timeout, retry=args.retry,
+                         post_c_delay=args.post_c_delay, debug=args.debug)
     ser.close()
     return rc
 

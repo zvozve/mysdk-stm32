@@ -45,11 +45,13 @@ add_compile_definitions(UART_DRV_BUF_SIZE=1088)
 
 ### 3. 是流式源：`seek == NULL`、`seekable == 0`
 
-所以只能顺序读。多段包（`seg_count=2`）时 `ota_flow` 会把不需要的段**读出来丢掉**；
-串口场景**建议直接打单段包**：
+所以只能顺序读。多段包（`seg_count=2`）时 `ota_flow` 会把不需要的段**读出来丢掉**。
+
+串口场景**默认直接发 raw `.bin`**（配合下面的「元数据优先」即可拿到期望大小/CRC32），
+无需自创容器格式。仅当需要「多段镜像 / 带版本号」时才用打包器（可选）：
 
 ```
-python tools/ota_pack.py --slot a --bin app.bin --ver 1.2.3 -o app.otapkg
+python tools/fw-ota-pack.py --slot a --bin app.bin --ver 1.2.3 -o app.otapkg
 ```
 
 ### 4. 与 `chip.oop_uart` 的锁语义（一个曾经会致命的坑）
@@ -98,6 +100,31 @@ PC ──YMODEM 帧──> uart_drv(rx_buf) ──> ymodem_recv ──on_data─
 拦不住的情况：包比目标区小、但里面的段比槽大 —— 那由 `ota_flow` 的 `DECIDE` 阶段
 报 `OTA_ERR_NOSPACE`。两道闸都在，缺一不可（前者省掉整场传输，后者是真正的判据）。
 
+## 元数据优先（方案 2，默认流程）
+
+bin 之前先传一段「元数据」，让设备**在收 bin 之前**就拿到期望大小与 CRC32：
+
+```
+PC ──'U'──> 第 1 段 YMODEM：8 字节元数据 [size u32LE][crc32 u32LE]
+         ──> 设备记下 size/crc32、按 size 提前判空间
+         ──> 第 2 段 YMODEM：固件本体 raw .bin
+         ──> 设备按**期望 CRC32** 校验整段镜像
+```
+
+好处（相对「无元数据的裸 bin」）：
+
+- **提前判空间**：收到 size 就能拒（不等整包收完才发觉放不下）
+- **能发现 PC 端源文件本身损坏**：按外部期望 CRC32 比对，而非只做
+  「内存 CRC == 闪存 CRC」自比（后者只能证明「收到的 == 落盘的」，源文件坏了照样落盘）
+
+`crc32` 与设备侧 `ota_crc32` 完全一致（CRC-32/ISO-HDLC，即 PC 端 `zlib.crc32`）。
+设备侧流程：收到 `'U'` → `ota_src_uart_meta_start()` → 轮询 `ota_src_uart_meta_poll()`
+到完成 → `ota_app_start()`（其 `open()` 另起一段 YMODEM 收 bin）。参照实现见
+`ota-demo-stm32/mcu/app/User/Src/app_ota.c`。
+
+> 兼容：不跑元数据段时（旧主机 / `--no-meta`），`expect_crc32 == 0`，
+> `ota_flow` 自动退回「内存 CRC == 闪存 CRC」自校。
+
 ## API
 
 | 函数 | 说明 |
@@ -105,6 +132,9 @@ PC ──YMODEM 帧──> uart_drv(rx_buf) ──> ymodem_recv ──on_data─
 | `ota_src_uart_init(u, uart, tick, tick_ctx)` | `tick` 传 NULL 则用 SDK 的 `oop_GetTickMS()` |
 | `ota_src_uart_source(u)` | 取出 `ota_source_t*`，传给 `ota_app_start()` |
 | `ota_src_uart_set_poll_timeout(u, ms)` | 单次 read 最长阻塞 |
+| `ota_src_uart_meta_start(u)` | 起元数据段（8 字节：size+crc32）；'U' 之后先调它 |
+| `ota_src_uart_meta_poll(u)` | 推进元数据段：`>0` 完成 / `0` 进行中 / `<0` 出错或超时 |
+| `ota_src_uart_meta_get(u, &m)` | 取已收到的元数据（size + crc32，日志用） |
 | `ota_src_uart_state(u)` | YMODEM 引擎当前状态名（日志用） |
 
 ## 依赖

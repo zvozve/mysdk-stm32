@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ota_ymodem.py 的回环自测：把 SDK library/protocols/ymodem 的接收侧
+fw_ota_ymodem.py 的回环自测：把 SDK library/protocols/ymodem 的接收侧
 （check_frame / recv_feed / handle_header / handle_data / handle_eot /
 recv_resend）忠实地移植成内存接收引擎，与 tools/ota_ymodem.py 的发送侧
 用内存串口对接，验证「头包不被 NAK、整包走完 DONE」。
 
 仅用于 CI / 本地回归，不进发布。运行：
-  python tools/_ymodem_loopback_test.py
+  python tools/_fw_ota_ymodem_loopback_test.py
 """
 import os
 import sys
@@ -16,7 +16,7 @@ import threading
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import ota_ymodem as S  # 待测发送侧
+import fw_ota_ymodem as S  # 待测发送侧
 
 # ---- 协议常量（与 ymodem.h 对齐）----
 SOH, STX, EOT, ACK, NAK, CAN, C = 0x01, 0x02, 0x04, 0x06, 0x15, 0x18, 0x43

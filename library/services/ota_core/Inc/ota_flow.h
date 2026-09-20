@@ -17,8 +17,10 @@
  *
  * 源格式（自动识别，无需调用方指定）：
  *   · .otapkg（magic=OTAP）：走原有 80 字节包头 + 段表解析，第 2/3 关比对包头段表里的 CRC32。
- *   · 裸 bin（任意非 OTAP 开头）：整段即镜像，长度取源声明的 total_size，从偏移 0 起；
- *     无外部 CRC，第 2 关只累计内存 CRC、第 3 关（闪存回读）与其互校，证明「落盘字节对」。
+ *   · 裸 bin（任意非 OTAP 开头）：整段即镜像，长度取源声明的 total_size，从偏移 0 起。
+ *     若源在 open 时给了外部期望 CRC32（`info.expect_crc32 != 0`，如 UART 的「元数据优先」），
+ *     第 2/3 关都按它校验（能发现 PC 端源文件本身损坏）；否则退回「内存 CRC == 闪存 CRC」
+ *     自校（只证明「收到的 == 落盘的」，不能发现源文件损坏）。
  *
  * 第 2 关与第 3 关的区别是最容易漏的设计点：增量 CRC 只证明「收到的报文对」，
  * 读回 CRC 才证明「落到 Flash 的字节对」。两关都要，别省。
@@ -110,6 +112,7 @@ struct ota_flow_s {
     uint32_t               pending_len;
     uint32_t               pending_off;
     uint32_t               src_total;     /*!< 源声明的总字节数（open 时从 info.total_size 取得） */
+    uint32_t               expect_crc32;  /*!< 外部期望 CRC32（0 = 无）；裸 bin 有它则按它校验 */
     const ota_flash_t     *dst_flash;     /*!< 下载落脚点介质 */
     uint32_t               dst_off;       /*!< 落脚点在介质内的起始偏移 */
     uint32_t               erase_end;     /*!< 擦除终点（介质内偏移） */

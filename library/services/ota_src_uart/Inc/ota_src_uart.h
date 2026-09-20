@@ -39,6 +39,9 @@ extern "C" {
 /** @brief 默认单次 read 的最长阻塞（毫秒） */
 #define OTA_SRC_UART_DEF_POLL_MS   2000u
 
+/** @brief 元数据会话的最长等待（毫秒）：'U' 之后迟迟收不到元数据就不死等 */
+#define OTA_SRC_UART_META_TIMEOUT_MS   20000u
+
 /**
  * @brief 等待数据期间的空闲回调（喂狗 / 让出 CPU / 请求中止）
  * @return 非 0 = 请求中止本次 read（read 将以 OTA_ERR_SOURCE 失败）
@@ -46,6 +49,15 @@ extern "C" {
  *        喂狗 / 让出 CPU 机会 —— 板上有看门狗就必须设。
  */
 typedef int (*ota_src_uart_idle_cb)(void *user);
+
+/**
+ * @brief 元数据优先（方案 2）：bin 之前先收的一小段元数据 = size(u32 LE) + crc32(u32 LE)
+ * @note  与设备侧 ota_crc32 同款（CRC-32/ISO-HDLC，即 zlib.crc32）。
+ */
+typedef struct {
+    uint32_t size;    /*!< 固件字节数 */
+    uint32_t crc32;   /*!< 整段固件的 CRC32 */
+} ota_src_uart_meta_t;
 
 typedef struct {
     /* 对外接口（用 ota_src_uart_source() 取） */
@@ -76,6 +88,15 @@ typedef struct {
     uint8_t        finished;
     int8_t         err;
 
+    /* 元数据优先（方案 2）：bin 之前先收的 8 字节小文件 */
+    uint32_t       exp_size;        /*!< 元数据声明的期望字节数（0 = 无） */
+    uint8_t        meta_buf[8];
+    uint32_t       meta_len;
+    uint8_t        meta_active;
+    uint8_t        meta_done;
+    int8_t         meta_err;
+    uint32_t       meta_t0;
+
     uint32_t     (*tick)(void *ctx);
     void          *tick_ctx;
 } ota_src_uart_t;
@@ -104,6 +125,24 @@ void ota_src_uart_set_poll_timeout(ota_src_uart_t *u, uint16_t ms);
  *         返回非 0 会让正在进行的 read 立即失败。
  */
 void ota_src_uart_set_idle_cb(ota_src_uart_t *u, ota_src_uart_idle_cb cb, void *user);
+
+/**
+ * @brief  元数据优先（方案 2）：起一段 YMODEM 会话，先收 8 字节元数据(size+crc32)
+ * @return OTA_OK / OTA_ERR_PARAM / OTA_ERR_SOURCE
+ * @note   收到 'U' 触发后**先调它**；轮询 `ota_src_uart_meta_poll()` 完成后，
+ *         再 `ota_app_start()`（其 `open()` 会另起一段 YMODEM 会话收 bin）。
+ *         收完后 `info.total_size` / `info.expect_crc32` 已填好，bin 段据此校验。
+ */
+int  ota_src_uart_meta_start(ota_src_uart_t *u);
+
+/**
+ * @brief  推进元数据会话
+ * @return >0 = 已收到并解析完；0 = 进行中；<0 = 出错/超时
+ */
+int  ota_src_uart_meta_poll(ota_src_uart_t *u);
+
+/** @brief 取已收到的元数据（size + crc32）；未完成时全 0 */
+void ota_src_uart_meta_get(const ota_src_uart_t *u, ota_src_uart_meta_t *out);
 
 /** @brief 调试用：YMODEM 引擎当前状态名 */
 const char *ota_src_uart_state(const ota_src_uart_t *u);
