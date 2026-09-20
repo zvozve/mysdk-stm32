@@ -129,7 +129,7 @@ SDK 的 `library/CMakeLists.txt`（拉取后即 `MySDK/CMakeLists.txt`）用 `GL
 并 PUBLIC 导出各 `*/Inc`——**新增模块无需改清单**，下次构建自动重扫。
 非 CubeMX 工程需自行给 `mystm32` 注入 HAL 头路径与 `STM32Fxxx/USE_HAL_DRIVER` 宏。
 
-### 3b. 双槽 OTA 工程：链接期必须按槽生成链接脚本
+### 3b. 多槽 OTA 工程：一次 build 出三份（base / A / B）
 
 A/B 双槽 OTA 的 APP **必须在链接期**就链接到槽地址——Flash 只是把它放到那里。
 只把地址写进烧录脚本是不够的：`.bin` 内部不含地址，链接地址由 `-T` 的 `.ld` 决定，
@@ -143,18 +143,37 @@ SP=0x20020000  Reset=0x0800C04D    链接在 0x08000000（错，与槽不符）
 SP=0x20020000  Reset=0x0801xxxx    链接在 0x08010000（对）
 ```
 
-做法：逻辑放进**工程根 `CMakeLists.txt`**（CubeMX 不重生成它；
-`cmake/gcc-arm-none-eabi.cmake` 会被重生成，不要改）——在 `add_executable` **之前**
-读基版 `.ld`，按 `OTA_SLOT` 改写 FLASH 的 `ORIGIN/LENGTH`，写到
-`${CMAKE_BINARY_DIR}/STM32F407xx_FLASH_slot${OTA_SLOT}.ld`，再把
-`CMAKE_EXE_LINKER_FLAGS` 里的 `-T <基版.ld>` 换成这份生成物。
+Cortex-M 是绝对寻址，「一个位置」就对应「一份二进制」，所以三份产物是必然的：
 
-- 地址**全部从 `.ld` 解析**（基版给几何、槽给偏移），不写死任何地址或偏移。
-- 根目录**不需要**预置 `slotA/slotB.ld`：编译用的生成物与 VSC「Flash APP」任务
-  （`fw-flash.py --slot A`，同样在 `build/` 生成一份）是**同一个源**。
+| 产物 | 链接地址 | 用途 |
+|---|---|---|
+| `TP_MDC.bin` | `0x08000000` / 1M | **不带 BL**，可独立烧到默认位置直接运行 |
+| `TP_MDC_A.bin` | `0x08010000` / 448K | 进 A 槽 |
+| `TP_MDC_B.bin` | `0x08080000` / 512K | 进 B 槽 |
+
+做法：逻辑放进**工程根 `CMakeLists.txt`**（CubeMX 不重生成它；
+`cmake/gcc-arm-none-eabi.cmake` 会被重生成，不要改）：
+
+1. 由基版 `.ld` 派生三份 `.ld` 写到 `${CMAKE_BINARY_DIR}`（= 与 `.bin` 同目录）：
+   `TP_MDC.ld`（基版原样副本）+ `TP_MDC_A.ld` + `TP_MDC_B.ld`；
+2. **先从 `CMAKE_EXE_LINKER_FLAGS` 里摘掉 toolchain 写死的 `-T <基版.ld>`** —— 否则
+   「全局 `-T` + 目标级 `-T`」会让 ld 看到两个同名 `MEMORY`（redeclaration 警告 + 段重复）；
+3. `add_executable` 建 base 目标，再用 `get_target_property(... SOURCES/LINK_LIBRARIES)`
+   把源与链接库复制给 `TP_MDC_A` / `TP_MDC_B`（自动跟随 CubeMX，不必手抄源列表）；
+4. 每个目标 `target_link_options(-T <自己的.ld> -Wl,-Map=<自己>.map)` +
+   `target_compile_definitions(OTA_SELF_BASE=<自己的基址>)`。
+
+- 地址**全部从 `.ld` 解析**，不写死任何地址或偏移（槽几何只在 CMake 里给一次）。
+- 根目录**不需要**预置 `slotA/slotB.ld`，也**不改动**根目录那份基版 `.ld`。
+- `OTA_SELF_BASE` 只被应用层（`app_ota.c`）使用，SDK 不用它 → 三个目标能共享同一批
+  SDK/HAL 编译产物（它们都是 OBJECT/INTERFACE 库），只有应用层编三遍。
 - 基版 `.ld` 的 `MEMORY` 行格式变了要 `FATAL_ERROR`，绝不静默错链。
 - 改了 `CMakeLists.txt` 必须**重新 configure**（不是只 rebuild），并在
-  `--print-memory-usage` 里确认 FLASH 区大小已变成该槽的大小（如 448K 而非 1024K）。
+  `--print-memory-usage` 里确认三个目标的 FLASH 区分别是 1M / 448K / 512K。
+
+烧录侧：`fw-flash.py` 会优先用「与 `.elf` 同目录的同名 `.ld`」解析地址 —— 所以 VSC 的
+`Flash` / `Flash Slot-A` / `Flash Slot-B` 三个任务只要换 `.elf`，**任务里不出现任何地址**。
+OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份镜像。
 
 ### 4. 增删模块
 

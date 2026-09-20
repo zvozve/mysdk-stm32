@@ -11,12 +11,13 @@
         },
         {
             "label": "Build & Flash",
+            "dependsOn": "Build",
             "type": "shell",
             "command": "python",
             "args": [
                 "${workspaceFolder}/sdk_run.py", "flash",
                 "${config:jlink.root}",
-                "${command:cmake.launchTargetPath}",
+                "${command:cmake.buildDirectory}/TP_MDC.elf",
                 "${config:jlink.device}",
                 "${config:jlink.interface}",
                 "${config:jlink.speed}",
@@ -33,7 +34,7 @@
             "args": [
                 "${workspaceFolder}/sdk_run.py", "flash",
                 "${config:jlink.root}",
-                "${command:cmake.getLaunchTargetPath}",
+                "${command:cmake.buildDirectory}/TP_MDC.elf",
                 "${config:jlink.device}",
                 "${config:jlink.interface}",
                 "${config:jlink.speed}",
@@ -44,13 +45,30 @@
             "problemMatcher": []
         },
         {
-            "label": "Flash APP",
+            "label": "Flash Slot-A",
             "type": "shell",
             "command": "python",
             "args": [
-                "${workspaceFolder}/sdk_run.py", "flash", "--slot", "A",
+                "${workspaceFolder}/sdk_run.py", "flash",
                 "${config:jlink.root}",
-                "${command:cmake.getLaunchTargetPath}",
+                "${command:cmake.buildDirectory}/TP_MDC_A.elf",
+                "${config:jlink.device}",
+                "${config:jlink.interface}",
+                "${config:jlink.speed}",
+                "${workspaceFolder}"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Flash Slot-B",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "flash",
+                "${config:jlink.root}",
+                "${command:cmake.buildDirectory}/TP_MDC_B.elf",
                 "${config:jlink.device}",
                 "${config:jlink.interface}",
                 "${config:jlink.speed}",
