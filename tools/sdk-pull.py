@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-sync_lib.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
+sdk-pull.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
 
 用法:
-    python sync_lib.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
+    python sdk-pull.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
 
 sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
     sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sync_lib.py 自动以其自身所在目录定位仓库
@@ -20,7 +20,7 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
 行为:
     1. 读 sdk_manifest.json，解析所选模块的 depends 闭包（external:* 跳过）
     2. 整目录镜像拷贝 模块 → dest/<layer>/<module>/（先清掉 dest，保证单源真相）
-    3. 拷贝 SDK 根 CMakeLists.txt（组件构建脚本）→ dest/CMakeLists.txt，
+    3. 拷贝 SDK 载荷根 CMakeLists.txt（<SDK>/library/CMakeLists.txt，与各 layer 同级）
        工程侧 add_subdirectory(<dest>) + 链接 mystm32 目标即可，无需维护源文件清单
     4. 生成 board_cfg.h 绑定模板（仅当文件不存在；具体引脚/句柄由工程填写）
     5. 写 dest/_sdk_sync.txt 戳（SDK 版本、时间、模块清单）
@@ -258,12 +258,13 @@ def main():
     prune_stale(dest, keep_paths)
 
     # SDK 组件构建脚本（随拉取更新，工程侧不维护）
-    sdk_cmakelists = sdk_root / "CMakeLists.txt"
+    # 载荷根的组件构建脚本：与各 layer 目录同级，故在 <SDK>/library/ 下
+    sdk_cmakelists = sdk_root / "library" / "CMakeLists.txt"
     if sdk_cmakelists.is_file():
         shutil.copy2(sdk_cmakelists, dest / "CMakeLists.txt")
-        print(f"  [ok] CMakeLists.txt -> {dest / 'CMakeLists.txt'}")
+        print(f"  [ok] library/CMakeLists.txt -> {dest / 'CMakeLists.txt'}")
     else:
-        print("  [warn] SDK 根缺少 CMakeLists.txt，工程需自行接入源文件")
+        print("  [warn] SDK 缺少 library/CMakeLists.txt，工程需自行接入源文件")
 
     # board_cfg 模板（不覆盖已有——绑定是工程资产）
     # 注意：云端盘（如 Google Drive 在线-only 占位）下 os.path.exists 可能误报
@@ -286,7 +287,7 @@ def main():
     # 同步戳
     stamp = dest / "_sdk_sync.txt"
     stamp.write_text(
-        "此目录由 mystm32-sdk/tools/sync_lib.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
+        "此目录由 mystm32-sdk/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
         "本目录随工程一并提交进版本库（不要 gitignore）：对拿到工程的人它就是源码的一部分。\n"
         f"SDK 版本 : {manifest['sdk']['version']}\n"
         f"拉取时间 : {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
