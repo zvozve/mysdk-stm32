@@ -9,12 +9,12 @@
 #include "ota_image.h"
 #include "ota_crc32.h"
 
-/* 包头必须**正好** 80 字节、且无隐式填充，否则 PC 侧 tools/ota_pack.py 打出来的包
+/* 包头必须**正好** 80 字节、且无隐式填充，否则 PC 侧 tools/fw-ota-pack.py 打出来的包
  * 与固件侧解析会错位。所有字段都天然对齐，所以这里应当恒成立；一旦有人调整字段
  * 顺序或类型，编译期就会拦下。 */
 #if defined(__STDC_VERSION__) && (__STDC_VERSION__ >= 201112L)
 _Static_assert(sizeof(ota_pkg_hdr_t) == OTA_PKG_HDR_SIZE,
-               "ota_pkg_hdr_t 必须正好 80 字节（与 tools/ota_pack.py 的头部布局对齐）");
+               "ota_pkg_hdr_t 必须正好 80 字节（与 tools/fw-ota-pack.py 的头部布局对齐）");
 #endif
 
 /** @brief 段数据在包内的偏移（前序段各按 4 字节对齐） */

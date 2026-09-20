@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ota_pack.py —— 把 APP 的 bin 打成 .otapkg（OTA 固件包）
+fw-ota-pack.py —— 把 APP 的 bin 打成 .otapkg（OTA 固件包）
 
 为什么需要它：把「长度 / CRC32 / 目标地址」钉进包内，而不是塞在 MQTT JSON 或
 HTTP 自定义头里 —— 这样任何下载通道（串口 / 网络 / TF 卡）都能自校验，BL 与 APP
@@ -27,15 +27,15 @@ CRC 一律 CRC-32/ISO-HDLC（= zlib.crc32），与固件侧 ota_crc32() 完全�
 
 用法:
     # 双段包（一个版本一个文件；HTTP 场景设备用 Range 只下自己那一段）
-    python ota_pack.py --slot-a build/app_slotA.bin --slot-b build/app_slotB.bin \\
+    python fw-ota-pack.py --slot-a build/app_slotA.bin --slot-b build/app_slotB.bin \\
                        --ver 1.2.3 -o dist/app_v1.2.3.otapkg
 
     # 单段包（串口 YMODEM 等无法 seek 的通道，省一半时间）
-    python ota_pack.py --slot b --bin build/app_slotB.bin --ver 1.2.3 \\
+    python fw-ota-pack.py --slot b --bin build/app_slotB.bin --ver 1.2.3 \\
                        -o dist/app_v1.2.3_slotB.otapkg
 
     # 查看已有包
-    python ota_pack.py --list dist/app_v1.2.3.otapkg
+    python fw-ota-pack.py --list dist/app_v1.2.3.otapkg
 
 默认段地址 = 分区表（doc/01）里的 SlotA/SlotB 基址；换布局用 --load-a/--load-b 覆盖。
 """

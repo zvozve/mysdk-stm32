@@ -7,7 +7,7 @@ sdk-pull.py —— mystm32-sdk 子集拉取工具（SDK → 工程）
     python sdk-pull.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
 
 sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
-    sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sync_lib.py 自动以其自身所在目录定位仓库
+    sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sdk-pull.py 自动以其自身所在目录定位仓库
     dest       = "../MySDK"                # 拉取目标，相对 sdk.toml 所在目录(User/)解析；
                                             #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
     board_cfg  = "board_cfg.h"             # 绑定文件，相对 sdk.toml 所在目录 User/ 解析；
@@ -136,7 +136,7 @@ BOARD_CFG_TEMPLATE = """\
 #define __BOARD_CFG_H
 
 /*
- * board_cfg.h —— 工程侧硬件绑定（类 devicetree，由 sync_lib.py 生成模板）
+ * board_cfg.h —— 工程侧硬件绑定（类 devicetree，由 sdk-pull.py 生成模板）
  *
  * 规则：
  *   - 全工程唯一允许 include CubeMX 生成头（main.h / usart.h / tim.h / gpio.h ...）

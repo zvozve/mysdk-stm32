@@ -2,7 +2,7 @@
 #define __BOARD_CFG_H
 
 /*
- * board_cfg.h —— 工程侧硬件绑定（类 devicetree，由 sync_lib.py 生成模板）
+ * board_cfg.h —— 工程侧硬件绑定（类 devicetree，由 sdk-pull.py 生成模板）
  *
  * 规则：
  *   - 全工程唯一允许 include CubeMX 生成头（main.h / usart.h / tim.h / gpio.h ...）

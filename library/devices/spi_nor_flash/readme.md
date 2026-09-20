@@ -4,7 +4,7 @@
 
 **板外器件**（devices 层），覆盖 W25Q / GD25Q / BY25Q / EON 等同族单线 SPI NOR。
 坐 `chip.oop_spi` 之上：SPI 走 `oop_spi_*`、CS/WP 走 `chip.oop_gpio`、计时走 `chip.oop_dwt`，
-**不直调任何 `HAL_SPI_*` / `HAL_GPIO_*`**（`oop_audit --strict` 会拦）。
+**不直调任何 `HAL_SPI_*` / `HAL_GPIO_*`**（`sdk-check-oop --strict` 会拦）。
 
 - 依赖：`chip.oop_spi`、`chip.oop_gpio`、`chip.oop_dwt`
 - 不打印日志，只返回错误码

@@ -38,7 +38,7 @@ void task_ota_selftest_start(void)
 
 ## 建议的上板自测流程
 
-1. PC 上 `python tools/ota_pack.py --slot b --bin app_slotB.bin --ver 0.0.1 -o test.otapkg`
+1. PC 上 `python tools/fw-ota-pack.py --slot b --bin app_slotB.bin --ver 0.0.1 -o test.otapkg`
 2. 把 `test.otapkg` 的内容通过 RTT 或命令行灌进 RAM（几 KB 量级，分块喂即可）
 3. `ota_src_mem_setup(..., seekable = 1)` 跑一遍、再 `seekable = 0` 跑一遍
 4. 观察 `ota_flow` 的 `state` / `err` / `crc_mem` / `crc_flash` 与 CFG 里的

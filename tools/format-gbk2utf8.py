@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-trans_gbk2utf-8.py —— GBK/GB2312 文本转 UTF-8（SDK tools/，单源）
+format-gbk2utf8.py —— GBK/GB2312 文本转 UTF-8（SDK tools/，单源）
 
 用法:
-    python trans_gbk2utf-8.py <file>
-    python trans_gbk2utf-8.py <dir> --recursive
-    python trans_gbk2utf-8.py a.c b.h dir/
+    python format-gbk2utf8.py <file>
+    python format-gbk2utf8.py <dir> --recursive
+    python format-gbk2utf8.py a.c b.h dir/
 
 行为:
     - 单文件: 就地转换为 UTF-8（覆盖写）。

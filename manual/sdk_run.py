@@ -23,7 +23,8 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
 工具文件名（2026-09-20 统一）:
     flash      -> tools/fw-flash.py
     pull       -> tools/sdk-pull.py
-    audit      -> tools/sdk-check-oop.py
+    audit      -> tools/sdk-check-oop.py + tools/check-eol.py
+                  （审计 = ①OOP/HAL 红线 ②行尾体检，两道都要过）
     trans      -> tools/format-gbk2utf8.py
     pack       -> tools/fw-ota-pack.py   （仅脚本保留，无 VSC 任务；raw-bin 流程下一般不再需要）
     ymodem     -> tools/fw-ota-ymodem.py （直接发 raw .bin，设备侧自动选槽）
@@ -82,9 +83,18 @@ def main() -> int:
         return subprocess.run([sys.executable, script, toml]).returncode
 
     if task == "audit":
-        script = os.path.join(tool_dir, "sdk-check-oop.py")
-        print("[sdk_run] audit ->", script)
-        return subprocess.run([sys.executable, script]).returncode
+        # 两道体检，任一不过即非零退出：
+        #   ① sdk-check-oop.py —— library/ 是否直调 HAL / 引用工程句柄（板无关红线）
+        #   ② check-eol.py     —— 行尾体检，防「CR 加倍」脏字节进仓库（见该文件头部说明）
+        rc = 0
+        for name in ("sdk-check-oop.py", "check-eol.py"):
+            script = os.path.join(tool_dir, name)
+            if not os.path.isfile(script):
+                print("[sdk_run] 跳过（工具缺失）:", script)
+                continue
+            print("[sdk_run] audit ->", script)
+            rc |= subprocess.run([sys.executable, script]).returncode
+        return rc
 
     if task == "trans":
         script = os.path.join(tool_dir, "format-gbk2utf8.py")

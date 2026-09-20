@@ -9,7 +9,7 @@
   - 协议封装 / 可复用算法 —— `library/protocols/`
   - 系统服务（固件生命周期、升级等） —— `library/services/`
   - 第三方中间件 —— `library/middleware/`
-- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sync_lib.py` / `oop_audit.py`（SDK 维护）、`flash.py` / `trans_gbk2utf-8.py`（工程面向）。
+- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sdk-pull.py` / `sdk-check-oop.py` / `check-eol.py`（SDK 维护）、`fw-flash.py` / `format-gbk2utf8.py` / `fw-ota-ymodem.py`（工程面向）。
 - `manual/` —— 手动拷贝到工程的脚手架（`sdk_run.py` 桥接 + `.vscode` 接口模板 + `User/` 配置模板），**不自动拉取**。
 
 ## 版本
@@ -34,11 +34,12 @@ mystm32-sdk/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
 ├── tools/            # 全部 host 工具（单源，只调用不拉取）
-│   ├── sync_lib.py   # 子集拉取（SDK 维护）
-│   ├── oop_audit.py  # HAL 泄漏检查（SDK 维护）
-│   ├── ota_pack.py   # OTA 固件打包 bin -> .otapkg（工程面向；经 sdk_run.py pack 调用）
-│   ├── flash.py      # J-Link 烧录（工程面向；自检 J-Link 路径/器件名并回写 settings.json 供 debug 用）
-│   └── trans_gbk2utf-8.py  # GBK→UTF-8（工程面向）
+│   ├── sdk-pull.py   # 子集拉取（SDK 维护）
+│   ├── sdk-check-oop.py  # HAL 泄漏检查（SDK 维护）
+│   ├── check-eol.py      # 行尾体检：CR 加倍 / 孤立 CR（SDK 维护；已并入 audit）
+│   ├── fw-ota-pack.py   # OTA 固件打包 bin -> .otapkg（工程面向；经 sdk_run.py pack 调用）
+│   ├── fw-flash.py      # J-Link 烧录（工程面向；自检 J-Link 路径/器件名并回写 settings.json 供 debug 用）
+│   └── format-gbk2utf8.py  # GBK→UTF-8（工程面向）
 ├── manual/           # 手动拷贝的脚手架（不自动拉取）
 │   ├── sdk_run.py    # 工程侧桥接：读 User/sdk.toml → 调 tools/*
 │   ├── .vscode/      # tasks/launch/keybindings 接口模板（task 调 sdk_run.py）
@@ -53,14 +54,15 @@ mystm32-sdk/
 - **分层不按物理位置混淆**：`chip/`=MCU 内，`devices/`=板外器件，`protocols/`=协议/算法，`services/`=系统服务（固件生命周期等），`middleware/`=第三方。弃用 `Core/bsp/Drivers` 笼统或越权名。
 - **`services/` 的判据**：不是协议、也不是某颗芯片，而是「跨项目的系统级流程」。放进来的是 OTA / bootloader 这类**固件生命周期**服务；塞不进原来四层、又想复用，才开这一层，别把随便什么工具函数都塞进去。
 - **HAL 保留**：CubeMX 生成的 HAL 仍是 vendor 底层，OOP 封装包在它上面；明确否决「全去 HAL 自写」。
-- **HAL 泄漏红线**：`tools/oop_audit.py` 扫 `library/{chip,devices,protocols,services}`。**只有 `chip/` 允许直接调用 `HAL_*` 函数或定义 `HAL_*Callback`**；其余四层一律只调 `oop_*`。跑 `--strict` 必须过。
-- **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sync_lib.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。
+- **HAL 泄漏红线**：`tools/sdk-check-oop.py` 扫 `library/{chip,devices,protocols,services}`。**只有 `chip/` 允许直接调用 `HAL_*` 函数或定义 `HAL_*Callback`**；其余四层一律只调 `oop_*`。跑 `--strict` 必须过。
+- **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sdk-pull.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。
 - **`MySDK/` 必须进工程版本库**（不 gitignore）：虽然它由 sync 生成，但对拿到工程的人它就是源码的一部分——缺了不知道少什么、也无法直接编译。定位同 CubeMX 生成的 HAL 库与初始化代码，一律入库。
 - **版本号规则**：SDK 顶层用语义化版本（如 `0.1.0`）；模块 `version` 沿用源码 `@version` 标注（Vx.y 或第三方原生版本），无标注者记为 null。
+- **行尾约定（改既有文件时必须守）**：要么**字节进出**（`open(p,"rb")` 读 → `open(p,"wb")` 写），要么读写都显式 `newline=""`。**禁止「保留换行地读 + 默认模式写」**——Python 写时会把 `\n` 再翻成 `os.linesep`，于是每编辑一次行尾就多一个 CR（`\n` → `\r\r\n` → `\r\r\r\n`）：编辑器里每行看着像多一个空行，且该文件会被 git 判为 `i/-text`（不参与行尾归一化），**脏字节直接进仓库**。回归检查：`python tools/check-eol.py`（已并入 `sdk_run.py audit`）。
 
 ## 工程接入指南
 
-SDK 是单源真相仓库。通过 `tools/sync_lib.py` 按 `sdk.toml` 选模块，把闭包子树镜像到
+SDK 是单源真相仓库。通过 `tools/sdk-pull.py` 按 `sdk.toml` 选模块，把闭包子树镜像到
 工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mystm32` 静态库即可，换板只改
 `board_cfg.h`。
 
@@ -71,7 +73,7 @@ SDK 是单源真相仓库。通过 `tools/sync_lib.py` 按 `sdk.toml` 选模块�
 工程根放置 `sdk.toml`（可参考 SmartHome 工程）：
 
 ```toml
-sdk       = "<SDK 仓库绝对路径>"   # SDK 绝对路径（无连字符）；省略时 sync_lib.py 自动定位仓库
+sdk       = "<SDK 仓库绝对路径>"   # SDK 绝对路径（无连字符）；省略时 sdk-pull.py 自动定位仓库
 dest      = "MySDK"                  # 镜像目标（相对 toml 所在目录解析）
 board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖）
 
@@ -83,7 +85,7 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 | 字段 | 含义 | 备注 |
 |---|---|---|
-| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mystm32-sdk`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sync_lib.py 自动以其自身所在目录定位仓库 |
+| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mystm32-sdk`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库 |
 | `dest` | 镜像目标目录 | 相对 toml 所在目录；根 CMakeLists 的 `add_subdirectory` 名必须与之一致 |
 | `board_cfg` | 绑定文件路径 | 仅首次生成模板；之后保留工程资产，不被覆盖 |
 | `[modules]` | 模块选择 | 写 `= true` 的模块，其 `depends` 由脚本递归补全；`external:*` 依赖跳过、由工程侧提供 |
@@ -98,12 +100,12 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 ```bash
 # 直接跑 SDK 提供的脚本（需要 python >= 3.11，tomllib 必需）
-python <SDK根>/tools/sync_lib.py <工程根>/User/sdk.toml
+python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml
 
 # 演习不写盘
-python <SDK根>/tools/sync_lib.py <工程根>/User/sdk.toml --dry-run
+python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --dry-run
 # 覆盖 toml 里的 sdk 路径
-python <SDK根>/tools/sync_lib.py <工程根>/User/sdk.toml --sdk <其他 SDK 根>
+python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --sdk <其他 SDK 根>
 ```
 
 拉取行为：
@@ -226,10 +228,11 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
 - **RFID 读卡（ws1850s）异步用法**：`uart_drv_t*` 注入 + 周期调用 `ws1850s_process()`（拉取收包/状态机），卡片/结果经 `card_cb`/`result_cb` 回调上抛，全程不阻塞；详见 `library/devices/ws1850s/readme.md`。
 - **IR 收发（`ir_receiver` / `ir_transmitter`）的 TIM 配置依赖**：`ir_receiver` = **一路通用定时器配成 Input Capture**（通道须接到解调接收头 OUT；1MHz 计数、ARR 取满量程、使能 NVIC），在 `HAL_TIM_IC_CaptureCallback()` 里转调 `ir_receiver_isr()`；`ir_transmitter` = **一路 TIM PWM 通道**（载波，ARR/CCR 由 cfg 覆写）+ **另一路空闲 TIM 作 µs 时基**（自由运行 1MHz，无引脚、无中断）。**不用 DWT**——工程侧实测部分 F1 板 CYCCNT 不可靠（自检偶发通过、发码时却冻结）。两个模块都是**多实例**（实例 + cfg 注入），详见各自 `readme.md`。
 - **串口命令行（`protocols.cli`）用法**：传输由工程注入 `cli_transport_t`（`getc` / `write` / `flush`，三者都带 `ctx`），命令用 `cli_register()` 因表注册、业务模块自带 `xxx_cli_cmds[]`，app 侧只做聚合；内置防回显自激四道闸（一次只执行一条 / 执行后 `flush` / 命令级 `guard_ms` / 未知行静默+限速摘要），handler **不得阻塞**（长动作只置标志，交任务执行）；详见 `library/protocols/cli/readme.md`。
-- **Python 版本**：`sync_lib.py` 用 `tomllib`，需 `>= 3.11`。
-- **审计局限**：`tools/oop_audit.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
+- **Python 版本**：`sdk-pull.py` 用 `tomllib`，需 `>= 3.11`。
+- **审计局限**：`tools/sdk-check-oop.py` 只查 CubeMX 头/全局句柄引用，**查不出直调 HAL 函数**；
   devices 层零直调 HAL 需靠 `grep -E "HAL_(TIM|IWDG|GPIO|Delay|GetTick)"` 兜底。
 - **路径风格**：sync 命令用 Windows 风格 `C:/...`，避免 Git Bash 把 `/c/...` 解析成 `c:\c\...`。
+- **行尾「CR 加倍」事故（已设防呆）**：临时改写脚本若「保留换行地读 + 默认文本模式写」，每改一次就给行尾多加一个 `\r`（`\n` → `\r\r\n` → `\r\r\r\n`）。症状是编辑器里每行后像多了个空行；更麻烦的是 `git ls-files --eol` 会把该文件标成 `i/-text` —— **它不参与行尾归一化，脏字节会被提交进仓库**（`library/CMakeLists.txt` 曾中招：4108 B 纯 LF → `\r\r\n` → `\r\r\r\n`）。检查：`python tools/check-eol.py`（`-v` 列 warn 明细），已并入 `python sdk_run.py audit` 与 VSC「SDK Check OOP」任务。修法：按 LF 切分、逐行 `rstrip(b"\r")`、以单 LF 拼回，并断言「抹掉所有 CR 后字节完全相同」。
 - **工程侧接口（SDK 位置只在 `sdk.toml` 一处配置）**：把 `manual/` 的内容拷到工程——
   `manual/sdk_run.py` → 工程根、`manual/.gitignore` → 工程根、`manual/.vscode/*` → 工程 `.vscode/`、
   `manual/User/*` → 工程 `User/`。
@@ -278,7 +281,7 @@ APP 侧升级链路打通（P3）。方案文档：`ota-demo-stm32/doc/01~06`。
 
 - **`chip.oop_boot` 补 `oop_boot_system_reset()`**：让 services 层不必出现 CMSIS 符号。
 - **验证**：3 个源 × F1/F4/G4 共 9 个组合 `-Wall -Wextra -Wpedantic` 零警告；
-  YMODEM 端到端单测（7 组场景）在 PC 上用 host gcc 全过；`tools/oop_audit.py --strict` 通过。
+  YMODEM 端到端单测（7 组场景）在 PC 上用 host gcc 全过；`tools/sdk-check-oop.py --strict` 通过。
 - 待建：`services.ota_flash_ext`（P5）、`services.ota_src_http`（P6）。
 ### 新增 chip.oop_boot + services.bootloader（2026-09-18，v0.10.0）
 
@@ -311,9 +314,9 @@ BL 外壳落地（P2）。方案文档：`ota-demo-stm32/doc/01~06`。
 - **验证**：4 个源文件 × F1/F4/G4 共 12 个组合 `-Wall -Wextra -Wpedantic` 零警告；
   `boot_health` 是**纯逻辑**（只依赖 `ota_cfg.h` 的数据结构、无 HAL/chip 依赖），
   在 PC 上用 host gcc 真跑通 22 项断言（含 `max_try` 边界、回滚后稳态零写、`active_slot` 越界兜底）。
-- `tools/oop_audit.py --strict` 通过。
+- `tools/sdk-check-oop.py --strict` 通过。
 - 待建：`protocols.ymodem` + `services.ota` + `services.ota_src_uart`（P3）。
-### 新增 services.ota_core + services.ota_src_mem + tools/ota_pack.py（2026-09-18，v0.9.0）
+### 新增 services.ota_core + services.ota_src_mem + tools/fw-ota-pack.py（2026-09-18，v0.9.0）
 
 OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
 
@@ -333,11 +336,11 @@ OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
 - **新增 `services.ota_src_mem`（V1.0）**：内存取数后端。让 OTA 逻辑在没有任何传输协议栈时
   就能跑通「写 → 双重校验 → 提交」，避免后面把 YMODEM 的问题和 OTA 逻辑的问题混在一起查。
   `seekable=1/0` 分别覆盖 HTTP/TF 卡（可跳段）与串口流式（不可回退）两条分支。
-- **新增 `tools/ota_pack.py`**：bin → `.otapkg`（双段包 / 单段包、`zlib.crc32`、版本注入），
+- **新增 `tools/fw-ota-pack.py`**：bin → `.otapkg`（双段包 / 单段包、`zlib.crc32`、版本注入），
   **产物写完会自己重新打开复算 CRC**；`--list` 可查看并校验已有包。
   `manual/sdk_run.py` 加 `pack` 子命令桥接，工程侧 `python sdk_run.py pack ...` 即可用。
 - 验证：8 个源文件在 F4 下 `-Wall -Wextra -Wpedantic` **零警告**；
-  `ota_pack.py` 打包往返 **22 项头部字节布局核对全过**（含段数据 4 字节对齐填充）。
+  `fw-ota-pack.py` 打包往返 **22 项头部字节布局核对全过**（含段数据 4 字节对齐填充）。
 - 待建：`services.bootloader`（P2）、`protocols.ymodem` + `services.ota` + `services.ota_src_uart`（P3）。
 
 ### 新增 services 层 + 两个 flash 模块（2026-09-18，v0.8.0）
@@ -357,10 +360,10 @@ OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
   0x0B FAST_READ；页编程自动按页切分 + WREN + 回读 WEL 校验；擦除自动选 64 KB 块擦 / 4 KB 扇区擦。
   设计取舍：**不做异步状态机**，改为「单位操作阻塞 + `spi_nor_set_idle_cb()` 空闲回调」——
   等 WIP 期间反复回调（喂狗 / 进度 / 返回 false 可中止），由上层决定一次喂多少字节。
-- **`tools/oop_audit.py`**：扫描范围加入 `library/services`（新层同样禁止直调 HAL）；
+- **`tools/sdk-check-oop.py`**：扫描范围加入 `library/services`（新层同样禁止直调 HAL）；
   `allow_hal` 判定改为按目录名 `endswith("/chip")`，避免以后加层时漏改映射表。
 - 待建：`services.ota_core`（BL/APP 共用底座）、`services.bootloader`、`services.ota`、
-  `protocols.ymodem`、`tools/ota_pack.py` —— 清单见 `todo.md`。
+  `protocols.ymodem`、`tools/fw-ota-pack.py` —— 清单见 `todo.md`。
 
 ### 忽略项默认模板（2026-09-18）— `.gitignore` 两份 + manual 脚手架补充
 
@@ -391,7 +394,7 @@ OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
 
 - `devices/ir_1838b` → `devices/ir_receiver`：1838B 只是「解调输出型接收头」的一个型号，模块本身不绑定芯片，故改用功能名；符号 `IR1838B_*` → `IR_Receiver_*`，头文件名与守卫同步。
 - `devices/ir_tx` → `devices/ir_transmitter`：`tx` 过短且与 `rx` 不成对，改为与 `ir_receiver` 对称的全名；符号 `IR_TX_*` → `IR_Transmitter_*`，类型 `ir_tx_cfg_t` → `ir_transmitter_cfg_t`。
-- 同步更新：manifest id/path/files、`manual/User/sdk.toml`、`manual/User/board_cfg.h`（`BOARD_IR_TX_CFG` → `BOARD_IR_TRANSMITTER_CFG`）、`tools/sync_lib.py` 模板、`chip.oop_tim` 与 `protocols.ac_codec` 的注释引用。
+- 同步更新：manifest id/path/files、`manual/User/sdk.toml`、`manual/User/board_cfg.h`（`BOARD_IR_TX_CFG` → `BOARD_IR_TRANSMITTER_CFG`）、`tools/sdk-pull.py` 模板、`chip.oop_tim` 与 `protocols.ac_codec` 的注释引用。
 - 顺带修正 manifest 里 `ir_receiver` 的描述：原写「基于定时器输入捕获」与实现不符，实为 **GPIO 双沿中断 + DWT 打时间戳**（1ms TIM 仅用于静默收尾）。
 
 ### 新增 devices.ws1850s（2026-09-18）— RFID 读卡器异步驱动
@@ -408,11 +411,11 @@ OTA 共用底座落地（P1）。方案文档：`ota-demo-stm32/doc/01~06`。
 
 ### v0.2.0 (2026-08-28) — bsp_* 全面更名 oop_* + 依赖规范化
 
-- chip 层 `bsp_*`→`oop_*`（目录/文件/符号/宏/守卫全同步），`bsp_audit`→`oop_audit`。cJSON 归位 `middleware`，`mqtt` 补 cJSON 依赖。
+- chip 层 `bsp_*`→`oop_*`（目录/文件/符号/宏/守卫全同步），`bsp_audit`→`sdk-check-oop`。cJSON 归位 `middleware`，`mqtt` 补 cJSON 依赖。
 
 ### v0.1.1 (2026-08-28) — 修复 OOP 封装泄漏 HAL
 
-- 全库剔除工程头/具体句柄/MX 引脚宏，改由各模块 `init` 注入（`uart`/`ir_receiver`/`ir_transmitter`/`heart_beat`/`lan8720a`/`dht11`/`wol`/`oop_dwt`）。新增 `oop_audit.py` 回归防护。
+- 全库剔除工程头/具体句柄/MX 引脚宏，改由各模块 `init` 注入（`uart`/`ir_receiver`/`ir_transmitter`/`heart_beat`/`lan8720a`/`dht11`/`wol`/`oop_dwt`）。新增 `sdk-check-oop.py` 回归防护。
 
 ### v0.1.0 (2026-08-28) — 初始版本
 

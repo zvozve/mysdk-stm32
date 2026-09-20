@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-fw_ota_ymodem.py 的回环自测：把 SDK library/protocols/ymodem 的接收侧
+fw_fw-ota-ymodem.py 的回环自测：把 SDK library/protocols/ymodem 的接收侧
 （check_frame / recv_feed / handle_header / handle_data / handle_eot /
-recv_resend）忠实地移植成内存接收引擎，与 tools/ota_ymodem.py 的发送侧
+recv_resend）忠实地移植成内存接收引擎，与 tools/fw-ota-ymodem.py 的发送侧
 用内存串口对接，验证「头包不被 NAK、整包走完 DONE」。
 
 仅用于 CI / 本地回归，不进发布。运行：
