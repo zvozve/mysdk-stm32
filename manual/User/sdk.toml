@@ -1,8 +1,8 @@
 # SDK 拉取配置模板（从 SDK manual/User/sdk.toml 拷贝到工程 User/sdk.toml 后填写）
-# 用法: python <SDK_ROOT>/tools/sync_lib.py User/sdk.toml
+# 用法: python <SDK_ROOT>/tools/sdk-pull.py User/sdk.toml
 #
 # 本文件与 board_cfg.h 同置于工程 User/（均为工程侧资产，sync 不会覆盖）。
-# sync_lib.py 把 dest / board_cfg 均解析为「相对本文件所在目录(User/)」，
+# sdk-pull.py 把 dest / board_cfg 均解析为「相对本文件所在目录(User/)」，
 # 因此要落到工程根需上跳一级(../MySDK)， board_cfg 直接写文件名(在 User/ 内)。
 # 仅 sdk 一项需要填真实路径；换 SDK 目录改这一行即可，其余不变。
 # C:\Container\Library\STM32-SDK\mystm32-sdk

@@ -7,7 +7,7 @@
  * 为什么要自己的包头（而不是「裸 bin + 侧信道元数据」）：
  * 元数据（长度 / CRC）放 MQTT JSON 或 HTTP 自定义头里，换个通道就没了。
  * 把元数据钉在包内，**任何传输通道都能自校验**，BL 与 APP 也能各自独立校验。
- * PC 侧由 tools/ota_pack.py 生成（见该脚本 --help）。
+ * PC 侧由 tools/fw-ota-pack.py 生成（见该脚本 --help）。
  *
  * 头布局（小端，共 80 字节；字段偏移与 doc/01 §3.1 一致）：
  *   0  magic(4)  4 hdr_ver(2)  6 hdr_size(2)  8 pkg_size(4)  12 fw_ver(4)  16 build_id(4)

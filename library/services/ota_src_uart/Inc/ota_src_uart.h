@@ -10,7 +10,7 @@
  *
  * ⚠ **流式源**：`seek == NULL`、`info.seekable == 0`，所以只能顺序读。
  *   多段包（seg_count=2）时 `ota_flow` 会顺序丢弃不需要的段；
- *   串口场景**建议直接打单段包**（`ota_pack.py --slot a --bin ...`）。
+ *   串口场景**建议直接打单段包**（`fw-ota-pack.py --slot a --bin ...`）。
  *
  * ⚠ **单次 `read()` 会阻塞，上限 = `poll_timeout_ms`**（默认 2000 ms）。
  *   这是流式源的固有属性 —— 「等对端把下一包发来」这件事没有非阻塞的做法，

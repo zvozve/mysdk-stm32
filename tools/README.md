@@ -7,11 +7,11 @@
 ## 分类
 
 ### 1) SDK 维护工具（仅 SDK 维护者使用）
-| 文件 | 作用 ||
-|---|---|---|
-| `sdk-pull.py` | 按工程 `sdk.toml` 把 `library/` 子集镜像到工程 `MySDK/`（单源真相） |  |
-| `sdk-check-oop.py` | 检查 `library/` 是否直调 HAL / 引用工程句柄（板无关校验）   |  |  
-||||
+| 文件 | 作用 |
+|---|---|
+| `sdk-pull.py` | 按工程 `sdk.toml` 把 `library/` 子集镜像到工程 `MySDK/`（单源真相） |
+| `sdk-check-oop.py` | 检查 `library/` 是否直调 HAL / 引用工程句柄（板无关校验） |
+| `check-eol.py` | 行尾体检：抓「行尾 CR 加倍 / 孤立 CR」；另报混用行尾与索引侧 `-text`。防「保留换行读 + 默认模式写」导致每编辑一次多一个 CR（脏字节会绕过 autocrlf 直接进仓库） |
 
 
 ### 2) 工程面向工具（开发者经 F8/F7 等任务调用）
@@ -22,7 +22,7 @@
 | `fw-ota-ymodem.py` | OTA 主机端：经 YMODEM 把 **raw .bin** 发给设备（设备侧自动选非运行槽写入）。`--gui` 弹文件框，`--port/--baud` 指定串口，`--trigger` 指定触发字节（默认 'U'） |
 | `fw-ota-pack.py` | 可选：把 bin 打成 `.otapkg` 包供 HTTP 等需「侧信道元数据」的源用；raw-bin（YMODEM）流程下一般不再需要 |
 
-> `flash.py` 的位置参数与旧 `flash.bat` 完全一致 `[JLROOT ELF DEV ITF SPEED PROJ]`（空串=自动检测），
+> `fw-flash.py` 的位置参数与旧 `flash.bat` 完全一致 `[JLROOT ELF DEV ITF SPEED PROJ]`（空串=自动检测），
 > 所以 `.vscode/tasks.json` **不必改**。`flash.bat` 已于 2026-09-18 删除——它在 `.ioc` 里抠的是
 > `Mcu.UserName`（如 `STM32F407ZGTx`），J-Link 器件表里没有这种带 `Tx` 后缀的名字，不显式传
 > Device 就烧不进去。

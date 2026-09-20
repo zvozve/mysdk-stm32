@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA 服务端 / 发送侧）
+fw-ota-ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA 服务端 / 发送侧）
 
 配合 SDK 的 services.ota_src_uart（设备侧 YMODEM 接收）使用。设备侧是接收方，
 本脚本是「服务端」：负责把 **raw .bin** 推下去（不再用自创的 .otapkg 格式——行业通用
@@ -30,16 +30,16 @@ ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA �
     设备侧 ota_flow 自动识别裸 bin（无 .otapkg 头），整段即镜像，按 YMODEM 头包里的
     文件大小判「目标区放得下」，并自动选非运行槽写入。
   · 头包里的文件名仅作展示，设备只看文件大小判「目标区放得下」。
-  · 旧的 .otapkg 仍兼容（设备侧按 magic 自动识别），但新流程不再需要 ota_pack.py 打包。
+  · 旧的 .otapkg 仍兼容（设备侧按 magic 自动识别），但新流程不再需要 fw-ota-pack.py 打包。
 
 依赖: pyserial  (pip install pyserial)；--gui 另需 tkinter（通常随 Python 自带）。
 
 用法:
-  python ota_ymodem.py dist/TP_MDC_A.bin              # 直接发 raw .bin（推荐，设备自动选槽）
-  python ota_ymodem.py --port COM13 --baud 115200 dist/TP_MDC_A.bin
-  python ota_ymodem.py --no-trigger --packet 128 dist/TP_MDC_A.bin   # 128 字节小包模式
-  python ota_ymodem.py --gui                                        # 弹文件选择框（默认过滤 .bin）
-   python ota_ymodem.py --gui --no-autoslot                          # 关掉自动挑槽（就发所选那份）
+  python fw-ota-ymodem.py dist/TP_MDC_A.bin              # 直接发 raw .bin（推荐，设备自动选槽）
+  python fw-ota-ymodem.py --port COM13 --baud 115200 dist/TP_MDC_A.bin
+  python fw-ota-ymodem.py --no-trigger --packet 128 dist/TP_MDC_A.bin   # 128 字节小包模式
+  python fw-ota-ymodem.py --gui                                        # 弹文件选择框（默认过滤 .bin）
+   python fw-ota-ymodem.py --gui --no-autoslot                          # 关掉自动挑槽（就发所选那份）
 
   ★ 自动挑槽（默认开）：设备收到触发字节后会回报一行 `#OTA target=A|B`（它自己用
     ota_area_select_target 算，会自动避开当前运行槽），脚本据此在同目录换成对应的那份
@@ -414,7 +414,7 @@ def main() -> int:
             if not filepath:
                 sys.exit("[ota_ymodem] 未选择文件")
         else:
-            sys.exit("用法: ota_ymodem.py <file> [--port COMx] [--baud 115200] [--gui]")
+            sys.exit("用法: fw-ota-ymodem.py <file> [--port COMx] [--baud 115200] [--gui]")
 
     if not os.path.isfile(filepath):
         sys.exit("[ota_ymodem] 找不到文件: %s" % filepath)

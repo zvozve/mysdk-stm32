@@ -5,7 +5,7 @@
  * @date    2026-09-18
  *
  * 只用 chip 层 oop_* 原语：SPI 走 oop_spi_*，CS/WP 走 oop_gpio_*，计时走 oop_dwt。
- * 本文件不得出现任何 HAL_SPI_* / HAL_GPIO_* 调用（oop_audit --strict 会拦）。
+ * 本文件不得出现任何 HAL_SPI_* / HAL_GPIO_* 调用（sdk-check-oop --strict 会拦）。
  */
 
 #include <string.h>
