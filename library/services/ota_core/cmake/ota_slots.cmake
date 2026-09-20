@@ -173,7 +173,14 @@ macro(ota_enable_multi_slot)
             target_include_directories(${_t} PRIVATE ${_otaslot_incs})
         endif()
         if(_otaslot_defs)
-            target_compile_definitions(${_t} PRIVATE ${_otaslot_defs})
+            # 复制 base 的编译定义，但摘掉 OTA_SELF_BASE：第 6 步刚给 base 注入过它，
+            # 原样带走会与下面那条槽基址重复（每个应用层 TU 两个 -DOTA_SELF_BASE，
+            # 逐条刷 "macro redefined" 警告；值虽正确——后者生效——但纯属噪音）。
+            set(_otaslot_defs_nobase "${_otaslot_defs}")
+            list(FILTER _otaslot_defs_nobase EXCLUDE REGEX "^${OTA_SELF_BASE_MACRO}=")
+            if(_otaslot_defs_nobase)
+                target_compile_definitions(${_t} PRIVATE ${_otaslot_defs_nobase})
+            endif()
         endif()
 
         # 「我在哪个槽」是链接期事实：应用层 app_ota.c 用它设 VTOR / 反查自身槽号。
