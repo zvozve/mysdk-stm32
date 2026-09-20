@@ -74,6 +74,7 @@ static void do_open(ota_flow_t *f)
     if (info.fw_ver != 0u) {
         f->fw_ver = info.fw_ver;
     }
+    f->src_total = info.total_size;
 
     f->state = OTA_FLOW_HDR;
     flow_report(f);
@@ -83,7 +84,9 @@ static void do_hdr(ota_flow_t *f)
 {
     uint32_t done = 0u;
 
-    /* 包头必须一次凑齐 80 字节才能解析，这里按需多读几次（不是任意长度阻塞） */
+    /* 无论 otapkg 还是裸 bin，都先读满 OTA_PKG_HDR_SIZE 字节：
+     * - otapkg：这正是 80 字节包头，解析后丢弃；
+     * - 裸 bin：这 80 字节就是镜像头部，必须原样写回（见 do_write 的 pending 缓冲）。 */
     while (done < OTA_PKG_HDR_SIZE) {
         uint32_t got = 0u;
 
@@ -98,12 +101,27 @@ static void do_hdr(ota_flow_t *f)
     }
     f->bytes_in += done;
 
-    if (ota_image_parse(f->cfg->buf, done, &f->hdr) != OTA_OK) {
-        flow_fail(f, OTA_ERR_IMAGE);
-        return;
-    }
-    if (f->hdr.fw_ver != 0u) {
-        f->fw_ver = f->hdr.fw_ver;
+    {
+        const ota_pkg_hdr_t *hp = (const ota_pkg_hdr_t *)f->cfg->buf;
+
+        if (hp->magic == OTA_PKG_MAGIC) {
+            /* ---- .otapkg 旧格式 ---- */
+            f->raw = 0u;
+            if (ota_image_parse(f->cfg->buf, done, &f->hdr) != OTA_OK) {
+                flow_fail(f, OTA_ERR_IMAGE);
+                return;
+            }
+            if (f->hdr.fw_ver != 0u) {
+                f->fw_ver = f->hdr.fw_ver;
+            }
+        } else {
+            /* ---- 裸 bin：没有包头，整段即镜像 ---- */
+            f->raw = 1u;
+            (void)memset(&f->hdr, 0, sizeof(f->hdr));
+            (void)memcpy(f->pending, f->cfg->buf, done);
+            f->pending_len = done;
+            f->pending_off = 0u;
+        }
     }
 
     f->state = OTA_FLOW_DECIDE;
@@ -134,12 +152,24 @@ static void do_decide(ota_flow_t *f)
         return;
     }
 
-    rc = ota_image_find_seg(&f->hdr, load_addr, &seg, &f->data_off);
-    if (rc != OTA_OK) {
-        flow_fail(f, rc);
-        return;
+    if (f->raw) {
+        /* 裸 bin：整段即镜像，从偏移 0 起，长度 = 源声明的总字节数 */
+        if (f->src_total == 0u) {
+            flow_fail(f, OTA_ERR_IMAGE);     /* 流式源拿不到长度，无法定位结束 */
+            return;
+        }
+        f->seg.load_addr = load_addr;
+        f->seg.size      = f->src_total;
+        f->seg.crc32     = 0u;              /* 无外部 CRC；第 2 关改为「内存 CRC == 闪存 CRC」 */
+        f->data_off      = 0u;
+    } else {
+        rc = ota_image_find_seg(&f->hdr, load_addr, &seg, &f->data_off);
+        if (rc != OTA_OK) {
+            flow_fail(f, rc);
+            return;
+        }
+        f->seg = *seg;
     }
-    f->seg = *seg;
 
     if (f->seg.size > f->tgt.target->size) {
         flow_fail(f, OTA_ERR_NOSPACE);
@@ -159,10 +189,14 @@ static void do_decide(ota_flow_t *f)
     f->stage_area  = f->tgt.target_stage;
     f->total       = f->seg.size;
 
-    rc = flow_seek_to(f, f->data_off);
-    if (rc != OTA_OK) {
-        flow_fail(f, rc);
-        return;
+    if (!f->raw) {
+        /* 裸 bin：头部已在 do_hdr 读进 pending，源游标已停在镜像偏移 OTA_PKG_HDR_SIZE，
+         * 不能回退；do_write 会先把 pending 吐回再继续读源。 */
+        rc = flow_seek_to(f, f->data_off);
+        if (rc != OTA_OK) {
+            flow_fail(f, rc);
+            return;
+        }
     }
 
     /* 擦除终点：按擦除单位上取整，但不越过目标区末端 */
@@ -229,6 +263,32 @@ static void do_write(ota_flow_t *f)
         return;
     }
 
+    /* 裸 bin：do_hdr 多读的那 OTA_PKG_HDR_SIZE 字节镜像头部，先原样写回 flash */
+    if (f->raw && f->pending_off < f->pending_len) {
+        uint32_t avail = f->pending_len - f->pending_off;
+        uint32_t take  = f->total - f->written;
+
+        if (take > avail) {
+            take = avail;
+        }
+        if (take > f->cfg->buf_len) {
+            take = f->cfg->buf_len;          /* pending 本就 <= 80，这里只是保险 */
+        }
+        if (f->dst_flash->write(f->dst_flash->ctx, f->dst_off + f->written,
+                                f->pending + f->pending_off, take) != OTA_OK) {
+            flow_fail(f, OTA_ERR_MEDIA);
+            return;
+        }
+        (void)f->v_mem.update(f->v_mem.ctx, f->pending + f->pending_off, take);
+        f->pending_off += take;
+        f->written     += take;
+        if (f->written >= f->total) {
+            f->state = OTA_FLOW_VERIFY_MEM;
+        }
+        flow_report(f);
+        return;
+    }
+
     want = f->total - f->written;
     if (want > f->cfg->buf_len) {
         want = f->cfg->buf_len;
@@ -257,10 +317,18 @@ static void do_write(ota_flow_t *f)
 
 static void do_verify_mem(ota_flow_t *f)
 {
-    /* 第 2 关：内存累计 CRC + 长度。只能证明「收到的报文对」 */
-    int rc = f->v_mem.finish(f->v_mem.ctx);
+    int rc;
 
-    f->crc_mem = f->st_mem.running;
+    if (f->raw) {
+        /* 裸 bin 无外部 CRC 可比对，第 2 关只累计内存 CRC，留待与第 3 关（闪存回读）互校 */
+        f->crc_mem = f->st_mem.running;
+        rc = OTA_OK;
+    } else {
+        /* 第 2 关：内存累计 CRC + 长度，与包头段表里的 CRC32 比对。证明「收到的报文对」 */
+        rc = f->v_mem.finish(f->v_mem.ctx);
+        f->crc_mem = f->st_mem.running;
+    }
+
     if (rc != OTA_OK) {
         flow_fail(f, OTA_ERR_VERIFY);
         return;
@@ -276,10 +344,18 @@ static void do_verify_flash(ota_flow_t *f)
     uint32_t want;
 
     if (f->verified >= f->total) {
-        /* 第 3 关：读回 Flash 重算。这才能证明「落到 Flash 的字节对」 */
-        int rc = f->v_flash.finish(f->v_flash.ctx);
+        int rc;
 
-        f->crc_flash = f->st_flash.running;
+        if (f->raw) {
+            /* 裸 bin：第 3 关读回 CRC 与第 2 关内存 CRC 互校，证明「落到 Flash 的字节对」 */
+            f->crc_flash = f->st_flash.running;
+            rc = (f->crc_flash == f->crc_mem) ? OTA_OK : OTA_ERR_VERIFY;
+        } else {
+            /* 第 3 关：读回 Flash 重算 CRC，与包头段表 CRC32 比对。证明「落到 Flash 的字节对」 */
+            rc = f->v_flash.finish(f->v_flash.ctx);
+            f->crc_flash = f->st_flash.running;
+        }
+
         if (rc != OTA_OK) {
             flow_fail(f, OTA_ERR_VERIFY);
             return;
@@ -320,7 +396,7 @@ static void do_commit(ota_flow_t *f)
     cfg.stage_area     = f->stage_area;
     cfg.target_area    = f->target_area;
     cfg.image_size     = f->seg.size;
-    cfg.image_crc32    = f->seg.crc32;
+    cfg.image_crc32    = f->raw ? f->crc_mem : f->seg.crc32;
     cfg.move_progress  = 0u;
     cfg.boot_try       = 0u;
     cfg.factory_flag   = 0u;
