@@ -39,6 +39,12 @@ STM32F407ZG，全表 5207 项**没有任何以 Tx 结尾的名字**）。Python 
                            选中的 .ld 触发 OTA 模式（擦该区 + loadfile）。
                            --slot-addr/--slot-len 可显式覆盖槽几何（默认按 F407 1MB 参考分区）
       --dry-run            只解析并打印「将要执行的 JLink 命令」，不烧录、不写 settings
+      --erase              烧录前**全片擦除**（含 BL / 槽区 / CFG 状态区）再写入本次固件。
+                           用于回到干净起步态：BL 工程 = 裸 BL（CFG 全空，BL 走救援分支，
+                           不会再跳去跑槽里的历史固件）；普通「Flash」不动其余扇区，
+                           J-Link 只逐扇区替换有差异的内容，槽里的历史固件会原样保留。
+      --erase-only         只全片擦除，不写任何固件；擦完保持 halt（flash 为空，直接
+                           运行会 fault），供「先擦干净、再分步烧」的流程使用。
       --settings-only      只做检测 + 写 settings.json（给 debug 用），不烧录
       --no-write-settings  正常烧录但不写 settings.json
       --color auto|always|never
@@ -135,21 +141,27 @@ def die(msg, code=1):
     sys.exit(code)
 
 
-def result_box(ok, dev, detail):
-    """烧录结果三行框（与旧 flash.bat 同款配色），供任务面板一眼看清成败。"""
+def result_box(ok, dev, detail, head="FLASH SUCCESS"):
+    """结果三行框（与旧 flash.bat 同款配色），供任务面板一眼看清成败。"""
     bar = OK_BAR if ok else ERR_BAR
-    head = "FLASH SUCCESS" if ok else "FLASH FAILED"
     text = "####   %s   ####   device=%s" % (head, dev)
     print("=" * 66)
     if COLOR:
         print(bar + " " * BOX_W + RESET)
         print(bar + text.ljust(BOX_W)[:BOX_W] + RESET)
         print(bar + " " * BOX_W + RESET)
-        print(c(">>> Download OK. Target reset and running." if ok
-                else ">>> See JLink output above.", GREEN if ok else RED))
+        if head.startswith("ERASE"):
+            print(c(">>> Flash erased. Target halted (blank flash, do not run).",
+                    GREEN if ok else RED))
+        else:
+            print(c(">>> Download OK. Target reset and running." if ok
+                    else ">>> See JLink output above.", GREEN if ok else RED))
     else:
         print(text)
-        print(">>> Download OK. Target reset and running." if ok else ">>> See JLink output above.")
+        if head.startswith("ERASE"):
+            print(">>> Flash erased. Target halted (blank flash, do not run).")
+        else:
+            print(">>> Download OK. Target reset and running." if ok else ">>> See JLink output above.")
     print("%s %s  %s" % (c("[flash]", CYAN), head, detail))
     return 0 if ok else 1
 
@@ -588,7 +600,8 @@ def write_debug_settings(proj, root, dev, itf, speed, user_settings, dry):
 # ────────────────────────────── 主流程 ──────────────────────────────
 def parse_argv(argv):
     pos, opt = [], {}
-    flags = {"dry_run": False, "settings_only": False, "no_write": False}
+    flags = {"dry_run": False, "settings_only": False, "no_write": False,
+             "erase": False, "erase_only": False}
     i = 0
     while i < len(argv):
         a = argv[i]
@@ -597,6 +610,10 @@ def parse_argv(argv):
             sys.exit(0)
         elif a == "--dry-run":
             flags["dry_run"] = True
+        elif a == "--erase":
+            flags["erase"] = True
+        elif a == "--erase-only":
+            flags["erase_only"] = True
         elif a == "--settings-only":
             flags["settings_only"] = True
         elif a == "--no-write-settings":
@@ -697,6 +714,10 @@ def main():
         erase_end = DEFAULT_ERASE_END
 
     log("模式        : %s" % c(mode, YELLOW if ota else DIM))
+    if flags["erase_only"]:
+        log("附加        : %s" % c("--erase-only → 只全片擦除，不写固件", YELLOW))
+    elif flags["erase"]:
+        log("附加        : %s" % c("--erase → 先全片擦除（含 BL/槽区/CFG）再写入", YELLOW))
 
     # ---- settings.json 写回（给 debug 用）----
     if flags["no_write"]:
@@ -710,13 +731,22 @@ def main():
         return 0
 
     # ---- 生成 J-Link 命令脚本（沿用旧 flash.bat 的语义）----
+    #   --erase / --erase-only：先 `erase`（无参数 = 全片，含 BL / 槽区 / CFG 状态区）。
+    #   OTA 模式本来只擦 APP 区 —— 全片擦除是它的超集，二者不同时发。
     lines = ["r", "h"]
-    if ota:
+    if flags["erase"] or flags["erase_only"]:
+        lines.append("erase")
+    elif ota:
         lines.append("erase 0x%08X, %s" % (origin, erase_end))
-        lines.append('loadfile "%s", 0x%08X' % (bin_path, origin))
+    if flags["erase_only"]:
+        lines += ["r"]                 # 擦完保持 halt：flash 全空，直接运行会 fault
     else:
-        lines.append('loadfile "%s"' % bin_path)
-    lines += ["r", "g", "exit"]
+        if ota:
+            lines.append('loadfile "%s", 0x%08X' % (bin_path, origin))
+        else:
+            lines.append('loadfile "%s"' % bin_path)
+        lines += ["r", "g"]
+    lines.append("exit")
 
     jlink = os.path.join(root, "JLink.exe")
     cmd = [jlink, "-device", dev, "-if", itf, "-speed", speed, "-autoconnect", "1", "-nogui", "1"]
@@ -739,6 +769,9 @@ def main():
 
     low = out.lower()
     ok = not (any(h in low for h in ERR_HINTS) or "O.K." not in out)
+    if flags["erase_only"]:
+        return result_box(ok, dev, "全片已擦除" + ("" if ok else "（见上方 J-Link 输出）"),
+                          head="ERASE SUCCESS" if ok else "ERASE FAILED")
     return result_box(ok, dev, bin_path)
 
 

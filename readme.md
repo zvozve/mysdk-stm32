@@ -288,6 +288,11 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
    `meterdatactrl/mcu_hw_1_4`、`mcu_hw_2_0` 仍用**旧 MySDK + 旧宏名**（自洽可用），**下次 `sdk-pull` 时必须把
    CMakeLists 里的 `MB_BOARD_CFG` 换成 `SDK_BOARD_CFG`（2 处）**，否则新 SDK 头不会 include board_cfg.h，
    功能开关会静默退回安全默认值（尤其 `BOARD_HEART_IWDG_ENABLE` 缺省不喂狗）。
+7. **`ota_slots` 去重 `OTA_SELF_BASE`**：A/B 目标复制 base 的 `COMPILE_DEFINITIONS` 时会连
+   `OTA_SELF_BASE=<基址>` 一起带走，再叠加各自槽基址 → 每个应用层 TU 两个 `-D`、逐条刷
+   `"OTA_SELF_BASE" redefined` 警告（值正确——后者生效——纯噪音）。复制时按 `OTA_SELF_BASE_MACRO`
+   过滤掉；现每目标恰一个 `-DOTA_SELF_BASE`（base=0x08000000 / A=0x08010000 / B=0x08080000，
+   已用 compile_commands.json 逐目标核对）。
 ### 新增 protocols.ymodem + services.ota + services.ota_src_uart（2026-09-18，v0.11.0）
 
 APP 侧升级链路打通（P3）。方案文档：`ota-demo-stm32/doc/01~06`。
