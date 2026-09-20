@@ -60,6 +60,17 @@
             "group": "build",
             "presentation": { "reveal": "always", "panel": "shared" },
             "problemMatcher": []
+        },
+        {
+            "label": "OTA YMODEM (Send)",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "ymodem", "--gui"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
         }
     ]
 }
