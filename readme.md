@@ -194,6 +194,18 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
 槽几何默认按**基版容量派生**（1MB → A = `+0x10000`/448K、B = `+0x80000`/512K，与工程分区表
 `User/Src/ota_areas.c` 对齐）；未知容量会 fail-fast 要求显式给出，绝不猜。
 
+### 3d. 产物生成（.hex / .bin）也在 SDK 侧
+
+同样由 SDK 载荷根统一挂载（`<MySDK>/CMakeLists.txt` 末段）—— 工程根 `CMakeLists.txt`
+里不再需要那段 objcopy 样板（CubeMX 生成的 CMakeLists 本来也不含它，历来靠手加）。
+
+- 经 `cmake_language(DEFER DIRECTORY <工程根>)` 执行。原因：`add_custom_command(TARGET ...)`
+  要求目标与调用方**在同一目录**，而 SDK 载荷根跑在 `<MySDK>/` 子目录、宿主主目标建在工程根
+  —— 直接调用会报 `TARGET ... was not created in this directory`（实测踩到）。
+- 用 `if(TARGET ${CMAKE_PROJECT_NAME})` 保护：宿主只把本组件当静态库用时不报错、静默跳过。
+- 关掉：`set(MYSDK_ARTIFACTS OFF)`。
+- 多槽工程的 `<name>_A` / `<name>_B` 由 `ota_slots.cmake` 各自生成（同样是工程根 DEFER）。
+
 ### 4. 增删模块
 
 - **加**：在 `[modules]` 加 `"<layer>.<name>" = true`，闭包自动补全（如选
