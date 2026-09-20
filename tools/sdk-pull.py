@@ -143,6 +143,8 @@ BOARD_CFG_TEMPLATE = """\
  *     的地方就是本文件；SDK（library/）不做任何绑定。
  *   - app / tasks 只引用本文件的绑定宏，不直接引用 MX 符号。
  *   - 换板只改本文件（引脚、句柄、时钟），SDK 与业务代码不动。
+ *   - 本文件不得 include 任何 SDK 头：hal_platform.h 会反过来 include 本文件
+ *     （为了拿 BOARD_USE_RTOS），反向再引用会形成循环包含。
  */
 
 #include "main.h"
@@ -153,9 +155,15 @@ BOARD_CFG_TEMPLATE = """\
 extern "C" {
 #endif
 
-/* ========== 功能开关（驱动读取：决定编译哪些传输/外设；与绑定区解耦） ========== */
-/* 这些宏被 SDK 头（modbus_core.h / heart_beat.h）在 MB_BOARD_CFG 下读取；
- * 也可被 CMake -D 显式覆盖（优先级更高）。无外部依赖的传输默认开，依赖外部栈的默认关。 */
+/* ========== 功能开关（SDK 读取；与绑定区解耦） ========== */
+/* 这些宏在编译期定义 SDK_BOARD_CFG 时被 SDK 头读取（hal_platform.h / modbus_core.h /
+ * heart_beat.h），也是 SDK 构建模式的唯一真相源；也可被 CMake -D 显式覆盖（优先级更高）。
+ * 无外部依赖的传输默认开，依赖外部栈的默认关。 */
+
+/* BOARD_USE_RTOS：宿主是 RTOS(1) 还是裸机(0)。SDK 据此归一化为 BOARD_USE_RTOS，且只在
+ * chip/ 层使用（时基/延时自动切换）；devices/protocols/services/middleware/app 一律
+ * 不得出现 RTOS 分支。改这一行即可在有/无 FreeRTOS 之间切换，不必再动 CMakeLists。 */
+#define BOARD_USE_RTOS            0      /* 1 = FreeRTOS / CMSIS-RTOS2 宿主；0 = 裸机 */
 #define BOARD_MODBUS_RTU_ENABLE   1      /* RTU 串行传输（仅依赖 UART） */
 #define BOARD_MODBUS_TCP_ENABLE   0      /* TCP 传输：需要 LwIP 栈；无网口板保持 0 */
 #define BOARD_HEART_IWDG_ENABLE   1      /* 心跳喂狗：无独立看门狗设 0 */

@@ -50,4 +50,27 @@
     #error "hal_platform.h: unknown STM32 series (define e.g. STM32G474xx / STM32F407xx / STM32F103xE in build options)"
 #endif
 
+/* ============================================================
+ * 运行模式：RTOS / 裸机 —— SDK 唯一开关，宏名就叫 BOARD_USE_RTOS
+ *
+ * 真相源 = 工程侧 User/board_cfg.h（与引脚绑定同一个文件，工程只维护一处）。
+ * 这里只负责兜底：工程没填该宏时默认 0（裸机），不会另造第二个名字。
+ * 优先级：-DBOARD_USE_RTOS > board_cfg.h > 默认 0（裸机）。
+ *
+ * 使用规则（红线）：
+ *   - BOARD_USE_RTOS 的消费点只允许在 chip/ 层内部（如 oop_dwt 的时基/延时实现）；
+ *   - devices / protocols / services / middleware / app 一律不得出现 RTOS 分支，
+ *     也不得 include FreeRTOS 头 —— 裸机与 RTOS 的差异由 chip 层接口吸收。
+ *   - 实现注记：这里刻意 include board_cfg.h（而不是让各层自己去拿开关），
+ *     故 board_cfg.h 不得 include 任何 SDK 头，否则形成循环包含。
+ * ============================================================ */
+#ifdef SDK_BOARD_CFG
+    #include "board_cfg.h"
+#endif
+
+#ifndef BOARD_USE_RTOS
+    #define BOARD_USE_RTOS     0
+#endif
+
+
 #endif /* __HAL_PLATFORM_H__ */

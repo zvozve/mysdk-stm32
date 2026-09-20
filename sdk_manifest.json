@@ -1,7 +1,7 @@
 {
   "sdk": {
     "name": "mystm32-sdk",
-    "version": "0.11.0",
+    "version": "0.12.0",
     "schemaVersion": "1.0",
     "description": "自建 STM32 驱动/协议 SDK：片上寄存器 OOP 封装（基于 HAL）、板外设备驱动、协议封装、第三方中间件。镜像 Zephyr 的 zephyrproject，本地单源真相，按项目拷贝子集。",
     "license": "internal",
@@ -36,9 +36,10 @@
       "name": "oop_dwt",
       "layer": "chip",
       "category": "timing",
-      "version": "V2.0",
+      "version": "V2.1",
+      "updated": "2026-09-20",
       "path": "chip/oop_dwt",
-      "description": "DWT 数据观察点与跟踪：延时/计时模块，支持 RTOS 与裸机。",
+      "description": "DWT 数据观察点与跟踪 + 系统时基：µs 延时走 DWT CYCCNT，ms 时基与延时按 BOARD_USE_RTOS 自动切 RTOS / 裸机（RTOS 取 xTaskGetTickCount / vTaskDelay，裸机取 HAL_GetTick / DWT 忙等）。oop_GetTickMS() 是全 SDK 唯一的毫秒时基出口，上层不感知宿主是否跑 RTOS。",
       "depends": [],
       "backends": [
         "hal"
@@ -739,8 +740,10 @@
       "version": null,
       "thirdParty": true,
       "path": "middleware/SEGGER_RTT",
-      "description": "SEGGER RTT 实时传输/日志（第三方调试库，含 printf 后端）。",
-      "depends": [],
+      "description": "SEGGER RTT 实时传输/日志（第三方调试库，含 printf 后端）。SDK 侧仅追加 SEGGER_RTT_Log.h 日志标签引擎；其时基只以符号声明方式取 chip.oop_dwt 的 oop_GetTickMS()，本层不 include HAL/RTOS 头。",
+      "depends": [
+        "chip.oop_dwt"
+      ],
       "backends": [
         "hw"
       ],
@@ -1114,6 +1117,7 @@
     "★ 2026-09-18 新增 services 层与两个 flash 模块（v0.8.0）：chip.oop_flash（内部 Flash，HAL_FLASH_* 唯一入口；F1/F4/G4 三系列几何内置，三系列各编过零警告；双 Bank F4 编译期 #error，G4 未上板验证）+ devices.spi_nor_flash（通用 SPI NOR，坐 oop_spi/oop_gpio/oop_dwt，阻塞单位操作 + idle_cb 喂狗）。tools/sdk-check-oop.py 的扫描范围加入 library/services（新层同样禁止直调 HAL）。同时为 OTA 方案铺路：services.ota_core / services.bootloader / services.ota / protocols.ymodem 待建，清单见 todo.md；方案文档在 ota-demo-stm32/doc/01~06。",
     "★ 2026-09-18 新增 services.ota_core + services.ota_src_mem（v0.9.0，P1）：OTA 共用底座与内存取数后端。底座含 ota_common/crc32/flash/area/cfg/image/source/flow/core 九个头；中心设计是「A/B 切换与单槽搬运合一」（分区表 RUN 数量 + pending_action 字段）、「非阻塞步进式流程」（每步一块 / 一个擦除单位，便于喂狗与取消）、「第 2 关（内存 CRC）与第 3 关（读回 CRC）分开」。同时新增 tools/fw-ota-pack.py（bin -> .otapkg，含产物自校验），manual/sdk_run.py 加 pack 子命令。验证：8 个源文件在 F4 下 -Wall -Wextra -Wpedantic 零警告；ota_pack 打包往返 22 项头部字节布局核对全过（含 4 字节对齐填充）。待建：services.bootloader（P2）、protocols.ymodem + services.ota + services.ota_src_uart（P3）。",
     "★ 2026-09-18 新增 chip.oop_boot + services.bootloader（v0.10.0，P2）：BL 外壳落地。chip.oop_boot 是跳转（VTOR/MSP/NVIC/SysTick + HAL_DeInit）—— 放 chip 层是因为 HAL 红线（services 层不许出现 HAL 符号）；跳转用 naked 汇编函数完成（SP 合法性检查必须在 __set_MSP() 之前，换栈后不能再调 C 函数），向量表判据 = SP 落 SRAM 且 4 字节对齐 + PC 的 Thumb 位。services.bootloader 是决策状态机（CFG→ACTIVATE→HEALTH→VERIFY→READY/RESCUE），非阻塞步进；试运行计数必须落盘否则回滚失效；已确认态正常开机零擦写；MOVE 靠「暂存区只读」+「按擦除单位记断点」实现断电幂等；boot_init 把 oop_flash 安全闸收窄为 [BOOT 区末尾, Flash 末尾)，擦不到 BL 自己。验证：4 个源文件 × F1/F4/G4 共 12 个组合零警告；boot_health 纯逻辑在 PC 上用 host gcc 跑通 22 项断言（含 max_try 边界、回滚后稳态零写、越界兜底）。待建：protocols.ymodem + services.ota + services.ota_src_uart（P3）。",
-    "★ 2026-09-18 新增 protocols.ymodem + services.ota + services.ota_src_uart（v0.11.0，P3）：APP 侧升级链路打通。protocols.ymodem 重写为**非阻塞状态机**（参考实现是阻塞版，装进带协议栈的 APP 会让看门狗先咬人），且**零硬件依赖**（收字节/发字节/时基全注入）→ 可在 PC 上把收发两引擎通过内存通道对接跑端到端测试（ACK 整包丢失→去重 / 噪声→NAK→重传 / 头包拒收→CAN / 空文件，共 7 组 + 帧工具 9 项）。内部约定：recv_process 一次只处理一帧就返回，保证 on_data 的指针活到下一次调用。services.ota 是 APP 外壳：early_init 设 VTOR（**用编译期 -DOTA_SELF_BASE 而非状态区的 run_slot** —— 两槽是同一份源码两次链接，拿过期 run_slot 设 VTOR 不会崩、只会安静地跑错 handler）、start/process 非阻塞、confirm 固化、trial_check+health_cb 自动确认、reboot 交回 BL。services.ota_src_uart 把 uart_drv+ymodem 适配成 ota_source_t。**工程侧两个前提**：① UART_DRV_BUF_SIZE 必须 ≥1029（1K 帧），已给该宏加 #ifndef 守卫供 -D 覆盖；② 单次 read 阻塞上限 = poll_timeout_ms（默认 2000ms），看门狗超时要大于它。另：chip.oop_boot 补 oop_boot_system_reset()（让 services 层不出现 CMSIS 符号）。"
+    "★ 2026-09-18 新增 protocols.ymodem + services.ota + services.ota_src_uart（v0.11.0，P3）：APP 侧升级链路打通。protocols.ymodem 重写为**非阻塞状态机**（参考实现是阻塞版，装进带协议栈的 APP 会让看门狗先咬人），且**零硬件依赖**（收字节/发字节/时基全注入）→ 可在 PC 上把收发两引擎通过内存通道对接跑端到端测试（ACK 整包丢失→去重 / 噪声→NAK→重传 / 头包拒收→CAN / 空文件，共 7 组 + 帧工具 9 项）。内部约定：recv_process 一次只处理一帧就返回，保证 on_data 的指针活到下一次调用。services.ota 是 APP 外壳：early_init 设 VTOR（**用编译期 -DOTA_SELF_BASE 而非状态区的 run_slot** —— 两槽是同一份源码两次链接，拿过期 run_slot 设 VTOR 不会崩、只会安静地跑错 handler）、start/process 非阻塞、confirm 固化、trial_check+health_cb 自动确认、reboot 交回 BL。services.ota_src_uart 把 uart_drv+ymodem 适配成 ota_source_t。**工程侧两个前提**：① UART_DRV_BUF_SIZE 必须 ≥1029（1K 帧），已给该宏加 #ifndef 守卫供 -D 覆盖；② 单次 read 阻塞上限 = poll_timeout_ms（默认 2000ms），看门狗超时要大于它。另：chip.oop_boot 补 oop_boot_system_reset()（让 services 层不出现 CMSIS 符号）。",
+    "★ 2026-09-20 RTOS 开关收敛到工程侧 board_cfg.h（v0.12.0）：新增 BOARD_USE_RTOS 作为 SDK 构建模式唯一真相源——hal_platform.h 在 SDK_BOARD_CFG 下读取它并归一化为 BOARD_USE_RTOS（优先级 -DBOARD_USE_RTOS > board_cfg.h > 默认 0 裸机），且 BOARD_USE_RTOS 只允许出现在 chip/ 层。chip.oop_dwt 升 V2.1：删除全库无人定义的死分支 __RTOS__，改为按 BOARD_USE_RTOS 切时序——oop_GetTickMS() 在 RTOS 下取 xTaskGetTickCount()（configTICK_RATE_HZ 必须整除 1000，编译期 #error 校验）、裸机取 HAL_GetTick()；oop_DelayMS() 与 HAL_Delay() 在调度器已启动时让出 CPU（vTaskDelay），未启动退回 DWT 忙等。middleware.SEGGER_RTT 的日志头不再 include hal_platform.h / FreeRTOS.h、不再出现 HAL_ / xTask*：时间戳改为「只声明 chip 层时基符号 oop_GetTickMS()」注入，未拉取 chip.oop_dwt 时在链接期报 undefined（替代旧写法——HAL_GetTick 停摆时静默打成 00:00:00），故 SEGGER_RTT 的 depends 补上 chip.oop_dwt。protocols.modbus 删除私有宏 BOARD_USE_RTOS 与全部 RTOS 分支，MB_GET_TICK() / MB_Delay_ms() 一律走 chip.oop_dwt（顺带消除「源仓无 #ifndef 守卫、工程副本有守卫」的分叉，该分叉会让 sdk-pull 回退工程的裸机配置）。工程侧随之只需在 User/board_cfg.h 填一行 BOARD_USE_RTOS，CMakeLists 不再传 BOARD_USE_RTOS / RTT_USE_RTOS。"
   ]
 }

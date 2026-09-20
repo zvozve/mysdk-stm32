@@ -21,7 +21,7 @@
 ```c
 mqtt_transport_t tp = {
     .send      = my_net_send,     // 用户实现：把 buf/len 发到 broker
-    .get_tick  = HAL_GetTick,     // 用户实现：ms 时间戳
+    .get_tick  = oop_GetTickMS,   // 用户实现：ms 时间戳（chip 层唯一时基出口，勿直调 HAL_GetTick）
     .delay     = my_delay_ms,
 };
 mqtt_client_t cli;

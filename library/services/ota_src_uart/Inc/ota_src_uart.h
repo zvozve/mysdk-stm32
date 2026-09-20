@@ -121,7 +121,8 @@ void ota_src_uart_set_poll_timeout(ota_src_uart_t *u, uint16_t ms);
 /**
  * @brief 注册「等包期间」的空闲钩子
  * @param  cb   回调（见类型注释）；NULL = 不设（板子没看门狗时可以）
- * @note   推荐实现：喂狗 + `vTaskDelay(1)`（既喂狗又节流，还避免同优先级任务饿死）。
+ * @note   推荐实现：喂狗 + `oop_DelayMS(1)`（chip 层延时，RTOS 下自动让出 CPU、
+ *         裸机下忙等；既喂狗又节流，避免同优先级任务饿死）。
  *         返回非 0 会让正在进行的 read 立即失败。
  */
 void ota_src_uart_set_idle_cb(ota_src_uart_t *u, ota_src_uart_idle_cb cb, void *user);

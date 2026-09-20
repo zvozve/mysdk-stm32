@@ -16,31 +16,23 @@ extern "C" {
 #define MB_RTU_DRVIER_VERSION "4.0.1"
 #define MB_RTU_DRVIER_DATE "2026-08-14"
 // ===========================
-// 系统配置
-// ===========================
-#define MB_USE_RTOS       1    // 0: 裸机, 1: RTOS
-// ===========================
 // 时间相关宏
+// 协议层不碰 HAL，也不碰 RTOS：一律走 chip 层时基出口。
+// 宿主是 RTOS 还是裸机由 chip/oop_dwt 内部按 board_cfg 的 BOARD_USE_RTOS 决定，
+// 本层（含所有调用方）不需要、也不允许出现任何 RTOS 分支。
 // ===========================
-#if MB_USE_RTOS
-    #include "FreeRTOS.h"
-    #include "task.h"
-    #define MB_GET_TICK()      xTaskGetTickCount()
-    #define MB_Delay_ms(ms)    vTaskDelay(pdMS_TO_TICKS(ms))
-#else
-    #include "oop_dwt.h"   /* chip 层时序封装：oop_GetTickMS / oop_DelayMS（不直调 HAL） */
-    #define MB_GET_TICK()      oop_GetTickMS()
-    #define MB_Delay_ms(ms)    oop_DelayMS(ms)
-#endif
+#include "oop_dwt.h"   /* chip 层时序封装：oop_GetTickMS / oop_DelayMS */
+#define MB_GET_TICK()      oop_GetTickMS()
+#define MB_Delay_ms(ms)    oop_DelayMS(ms)
 // ===========================
 // 传输开关（文件内宏门控，配合 CMake 统一引入所有源文件）
 // 优先级：CMake -D 显式覆盖  >  board_cfg.h(BOARD_MODBUS_*_ENABLE)  >  SDK 安全默认
-//   - 工程在 CMake 定义 MB_BOARD_CFG 并把 board_cfg.h 目录加入包含路径后，
+//   - 工程在 CMake 定义 SDK_BOARD_CFG 并把 board_cfg.h 目录加入包含路径后，
 //     本头读取 BOARD_MODBUS_RTU_ENABLE / BOARD_MODBUS_TCP_ENABLE。
-//   - 未启用 MB_BOARD_CFG（如 SDK 独立编译 / 单测）时走下方安全默认：
+//   - 未启用 SDK_BOARD_CFG（如 SDK 独立编译 / 单测）时走下方安全默认：
 //     RTU 默认开（仅依赖 UART，无外部栈），TCP 默认关（依赖 LwIP，无网口板不应编入）。
 // ===========================
-#ifdef MB_BOARD_CFG
+#ifdef SDK_BOARD_CFG
 #include "board_cfg.h"   // 工程板级绑定：仅读取功能开关宏，不引用任何具体引脚/句柄
 #endif
 #ifndef MODBUS_ENABLE_RTU

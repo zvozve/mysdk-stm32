@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include "oop_gpio_drv.h"
 
-#ifdef MB_BOARD_CFG
+#ifdef SDK_BOARD_CFG
 #include "board_cfg.h"   // 工程板级绑定：仅读取功能开关宏
 #endif
 
