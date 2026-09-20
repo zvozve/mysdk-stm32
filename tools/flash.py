@@ -21,6 +21,13 @@ STM32F407ZG，全表 5207 项**没有任何以 Tx 结尾的名字**）。Python 
     python flash.py [JLROOT] [ELF] [DEV] [ITF] [SPEED] [PROJ] [选项]
 
     选项:
+      --elf PATH           待烧固件的 ELF（取**同名同目录** .bin；OTA 双槽工程**必给**，
+                           否则扫描 build/ 下多个槽的 .bin 无法自动分辨）
+      --bin PATH           直接指定 .bin（优先级高于 --elf 的同名推导）
+      --ld NAME|PATH       链接脚本（决定烧到哪：ORIGIN=槽基址）。OTA 双槽工程的根下有
+                           多份 .ld（1024K 原版 + slotA + slotB），字典序第一个是原版，
+                           静默使用会把「烧到槽基址」误判成「烧到 0x08000000」→ bin
+                           直接盖掉 BL，所以多份时**必须显式指定**（本工具会 fail-fast 列出）
       --dry-run            只解析并打印「将要执行的 JLink 命令」，不烧录、不写 settings
       --settings-only      只做检测 + 写 settings.json（给 debug 用），不烧录
       --no-write-settings  正常烧录但不写 settings.json
@@ -281,34 +288,73 @@ def _size_to_int(s):
     return int(s, 0) * mult
 
 
-def parse_ld(proj):
-    """读 .ld 的 FLASH (rx) : ORIGIN = ..., LENGTH = ... → (origin, length, 文件名)。"""
-    for f in sorted(glob.glob(os.path.join(proj, "*.ld"))):
+def parse_ld(proj, ld_path=None):
+    """
+    读 .ld 的 FLASH (rx) : ORIGIN = ..., LENGTH = ... → (origin, length, 文件名, 完整路径)。
+    - 显式 ld_path（--ld，可相对工程根）：只解析那一份。
+    - 不给：扫工程根 *.ld；**多于一份含 FLASH 行时返回 AMBIGUOUS** ——
+      OTA 双槽工程根下有 1024K 原版 + slotA + slotB 三份，字典序第一个是原版，
+      静默取它会把 ORIGIN 判成 0x08000000 → 走「不带地址的 loadfile」→ bin 落在
+      0x08000000 **盖掉 BL**。宁可 fail-fast，也不要替用户猜错地方。
+    """
+    if ld_path:
+        p = ld_path if os.path.isabs(ld_path) else os.path.join(proj, ld_path)
+        files = [p]
+    else:
+        files = sorted(glob.glob(os.path.join(proj, "*.ld")))
+
+    hits = []
+    for f in files:
+        if not os.path.isfile(f):
+            continue
         txt = open(f, encoding="utf-8", errors="replace").read()
         m = re.search(r"FLASH\s*\([^)]*\)\s*:\s*ORIGIN\s*=\s*([^,\s]+)\s*,\s*LENGTH\s*=\s*([^\s,]+)",
                       txt, re.S)
         if m:
             try:
-                return _size_to_int(m.group(1)), _size_to_int(m.group(2)), os.path.basename(f)
+                hits.append((_size_to_int(m.group(1)), _size_to_int(m.group(2)),
+                             os.path.basename(f), f))
             except ValueError:
                 pass
-    return None, None, None
+
+    if not ld_path and len(hits) > 1:
+        return ("AMBIGUOUS", hits, None, None)
+    if hits:
+        return (hits[0][0], hits[0][1], hits[0][2], hits[0][3])
+    return (None, None, None, None)
 
 
-def find_bin(elf, proj):
-    """定位待烧录 .bin：优先 ELF 同名同目录 → 再扫 build/{Release,Debug}、build/*/、build/。"""
+def find_bin(elf, proj, bin_path=None):
+    """
+    定位待烧录 .bin：--bin 显式 → ELF 同名同目录 → 扫 build/{Release,Debug}、build/*/、build/。
+    扫描拿到多个 .bin 时 **fail-fast 列出**（双槽工程的 build/ 下同时有 ota_A/ota_B/Release
+    三个 bin，sorted 后 Release（BL 的产物）排最前，静默取第一个会烧错固件）。
+    """
+    if bin_path:
+        p = bin_path if os.path.isabs(bin_path) else os.path.join(proj, bin_path)
+        if not os.path.isfile(p):
+            die("--bin 指定的文件不存在: %s" % p)
+        return p
+
     if elf:
-        cand = os.path.splitext(elf)[0] + ".bin"
+        e = elf if os.path.isabs(elf) else os.path.join(proj, elf)
+        cand = os.path.splitext(e)[0] + ".bin"
         if os.path.isfile(cand):
             return cand
+
+    seen = []
     for pat in (os.path.join(proj, "build", "Release", "*.bin"),
                 os.path.join(proj, "build", "Debug", "*.bin"),
                 os.path.join(proj, "build", "*", "*.bin"),
                 os.path.join(proj, "build", "*.bin")):
-        hits = sorted(glob.glob(pat))
-        if hits:
-            return hits[0]
-    return None
+        seen += sorted(glob.glob(pat))
+    uniq = sorted(set(os.path.normcase(h) for h in seen))
+
+    if len(uniq) > 1:
+        die("扫到 %d 个 .bin（OTA 双槽工程的 build/ 下同时有多个槽的产物），"
+            "自动选取会烧错固件。用 --elf <ELF 路径>（取同名 .bin）或 --bin <bin 路径>"
+            "显式指定:\n    %s" % (len(uniq), "\n    ".join(uniq)))
+    return uniq[0] if uniq else None
 
 
 # ────────────────────────────── settings.json 就地增/改 ──────────────────────────────
@@ -452,7 +498,7 @@ def parse_argv(argv):
         elif a == "--no-write-settings":
             flags["no_write"] = True
         elif a in ("--jlink-root", "--device", "--interface", "--speed",
-                   "--proj", "--user-settings", "--color"):
+                   "--proj", "--user-settings", "--color", "--elf", "--ld", "--bin"):
             if i + 1 >= len(argv):
                 die("%s 缺少参数值" % a)
             opt[a.lstrip("-").replace("-", "_")] = argv[i + 1]
@@ -501,7 +547,12 @@ def main():
         c("  (默认值)", DIM) if (itf == DEFAULT_IF and speed == DEFAULT_SPEED) else ""))
 
     # ---- .ld → 模式 ----
-    origin, length, ld = parse_ld(proj)
+    origin, length, ld, _ld_path = parse_ld(proj, opt.get("ld"))
+    if origin == "AMBIGUOUS":
+        die("工程根下有 %d 份含 FLASH 分区的 .ld，无法自动选（字典序第一份是 1024K 原版，"
+            "静默使用会把 bin 烧到 0x08000000 盖掉 BL）:\n    %s\n"
+            "    用 --ld <文件名> 显式指定（如 --ld STM32F407xx_FLASH_slotA.ld）"
+            % (len(length), "\n    ".join(h[3] for h in length)))
     ota = origin is not None and origin != 0x08000000
     if origin is None:
         warn(".ld 里没解析出 FLASH ORIGIN → 按普通模式（不擦除）")
@@ -517,7 +568,7 @@ def main():
         erase_end = DEFAULT_ERASE_END
 
     # ---- 固件 ----
-    bin_path = find_bin(elf, proj)
+    bin_path = find_bin(elf, proj, opt.get("bin"))
     if not bin_path:
         die("找不到 .bin（ELF 参数=%r；已扫 build/Release、build/Debug、build/*/）—— 先编译" % elf)
     log("固件        : %s  %s" % (c(bin_path, CYAN), c("(%.1f KB)" % (os.path.getsize(bin_path) / 1024.0), DIM)))
