@@ -22,7 +22,7 @@
 现象是「随机某个包 CRC 错、重传几次后又能过」，非常难查。
 
 ```cmake
-# 工程 CMakeLists（必须在 add_executable 之前，mystm32 子目标才继承得到）
+# 工程 CMakeLists（必须在 add_executable 之前，mysdk 子目标才继承得到）
 add_compile_definitions(UART_DRV_BUF_SIZE=1088)
 ```
 

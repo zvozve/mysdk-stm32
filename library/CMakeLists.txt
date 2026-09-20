@@ -1,5 +1,5 @@
 # ============================================================
-# mystm32-sdk 组件构建脚本
+# mysdk-stm32 组件构建脚本
 # ------------------------------------------------------------
 # 位置：本文件是 SDK 源仓的 <SDK>/library/CMakeLists.txt —— 也就是各 layer 目录
 #       (chip/ devices/ protocols/ services/ middleware/) 所在那一层的根。
@@ -11,7 +11,7 @@
 #
 # 工程侧接入（目录名与 sdk.toml 的 dest 保持一致）：
 #     add_subdirectory(MySDK)          # 需放在 add_subdirectory(cmake/stm32cubemx) 之后
-#     target_link_libraries(<主目标> PRIVATE mystm32)
+#     target_link_libraries(<主目标> PRIVATE mysdk)
 #
 # 依赖宿主工程提供：
 #     - HAL/RTOS/LwIP 头文件路径与全局宏（STM32Fxxx / USE_HAL_DRIVER / DEBUG）
@@ -19,21 +19,21 @@
 #       本组件自动链接之；非 CubeMX 工程请自行注入（见下方 WARNING 分支）
 # ============================================================
 
-add_library(mystm32 STATIC)
+add_library(mysdk STATIC)
 
 # ---- 位置自检 ----
 # 本脚本必须与各 layer 目录同级（源仓 <SDK>/library/，或工程侧 <dest>/）。
 # 若一个 layer 目录都不存在，说明它被放错了位置 -> 立即报错退出，
-# 否则下面的 GLOB 会静默匹配 0 个文件，产出一个空的 mystm32 静态库（极难发现）。
-set(_mystm32_layer_found FALSE)
-foreach(_mystm32_layer chip devices middleware protocols services)
-    if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_mystm32_layer}")
-        set(_mystm32_layer_found TRUE)
+# 否则下面的 GLOB 会静默匹配 0 个文件，产出一个空的 mysdk 静态库（极难发现）。
+set(_mysdk_layer_found FALSE)
+foreach(_mysdk_layer chip devices middleware protocols services)
+    if(IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${_mysdk_layer}")
+        set(_mysdk_layer_found TRUE)
     endif()
 endforeach()
-if(NOT _mystm32_layer_found)
+if(NOT _mysdk_layer_found)
     message(FATAL_ERROR
-        "mystm32: no layer dir (chip/ devices/ protocols/ services/ middleware/) under "
+        "mysdk: no layer dir (chip/ devices/ protocols/ services/ middleware/) under "
         "${CMAKE_CURRENT_SOURCE_DIR}. "
         "本 CMakeLists.txt 必须与各 layer 目录同级：源码中位于 <SDK>/library/，"
         "工程侧由 sdk-pull.py 复制到 <dest>/（与 chip/ 同级）。")
@@ -41,7 +41,7 @@ endif()
 
 # ---- 源文件（按 layer/module 组织：<layer>/<module>/Src/*.c）----
 # CONFIGURE_DEPENDS：拉取增删模块后，下次构建自动重扫源文件，无需手动重跑 cmake
-file(GLOB_RECURSE MYSTM32_SOURCES CONFIGURE_DEPENDS
+file(GLOB_RECURSE MYSDK_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/chip/*/Src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/devices/*/Src/*.c
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/*/Src/*.c
@@ -59,25 +59,25 @@ file(GLOB_RECURSE MYSTM32_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Src/*.S
     ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Inc/*.S
 )
-target_sources(mystm32 PRIVATE ${MYSTM32_SOURCES})
+target_sources(mysdk PRIVATE ${MYSDK_SOURCES})
 
 # ---- 头文件路径（PUBLIC：SDK 头互相引用，工程侧也要包含 SDK 头）----
-file(GLOB MYSTM32_INCS LIST_DIRECTORIES true
+file(GLOB MYSDK_INCS LIST_DIRECTORIES true
     ${CMAKE_CURRENT_SOURCE_DIR}/chip/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/devices/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/middleware/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/protocols/*/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/services/*/Inc
 )
-target_include_directories(mystm32 PUBLIC ${MYSTM32_INCS})
+target_include_directories(mysdk PUBLIC ${MYSDK_INCS})
 
 # ---- 宿主依赖注入 ----
 if(TARGET stm32cubemx)
-    target_link_libraries(mystm32 PUBLIC stm32cubemx)
+    target_link_libraries(mysdk PUBLIC stm32cubemx)
 else()
     message(WARNING
-        "mystm32: 未找到宿主目标 stm32cubemx，"
-        "请自行为 mystm32 注入 HAL 头文件路径与宏定义（STM32Fxxx/USE_HAL_DRIVER）")
+        "mysdk: 未找到宿主目标 stm32cubemx，"
+        "请自行为 mysdk 注入 HAL 头文件路径与宏定义（STM32Fxxx/USE_HAL_DRIVER）")
 endif()
 
 # ---- 多槽 OTA（services.ota_core 模块提供）----
@@ -102,7 +102,7 @@ endif()
 #   这里静默跳过，不报错。
 # 注：多槽工程的 <name>_A / <name>_B 由 services/ota_core/cmake/ota_slots.cmake 各自生成
 #     —— 它同样是在工程根的 DEFER 里做的（同一个道理）。
-macro(mystm32_enable_artifacts)
+macro(mysdk_enable_artifacts)
     if((NOT DEFINED MYSDK_ARTIFACTS OR MYSDK_ARTIFACTS) AND TARGET ${CMAKE_PROJECT_NAME})
         add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
             COMMAND ${CMAKE_OBJCOPY} -O ihex
@@ -116,7 +116,7 @@ macro(mystm32_enable_artifacts)
 endmacro()
 
 if(COMMAND cmake_language)
-    cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL mystm32_enable_artifacts)
+    cmake_language(DEFER DIRECTORY "${CMAKE_SOURCE_DIR}" CALL mysdk_enable_artifacts)
 else()
-    message(FATAL_ERROR "mystm32: 需要 CMake >= 3.19（用到 cmake_language(DEFER)）")
+    message(FATAL_ERROR "mysdk: 需要 CMake >= 3.19（用到 cmake_language(DEFER)）")
 endif()
