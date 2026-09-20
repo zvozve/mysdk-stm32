@@ -33,6 +33,13 @@ typedef struct {
     uint32_t total_size;   /*!< 总字节数；0 = 未知（流式通道常见） */
     uint32_t fw_ver;       /*!< 版本；0 = 未知 */
     uint8_t  seekable;     /*!< 1 = seek 可用 */
+    /**
+     * @brief 外部期望 CRC32（0 = 未知）
+     * @note  通道在 open 之前先拿到元数据（如 UART 的「元数据优先」小文件）时填入。
+     *        ota_flow 有它就用它校验整段镜像（能发现 PC 端源文件本身损坏），
+     *        没有就退回裸 bin 的「内存 CRC == 闪存 CRC」自校。
+     */
+    uint32_t expect_crc32;
 } ota_src_info_t;
 
 /** @brief 取数后端实例（调用方持有） */

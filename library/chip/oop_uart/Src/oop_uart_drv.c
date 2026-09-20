@@ -168,11 +168,11 @@ static void start_rx(uart_drv_t *drv) {
              *   ReceptionType 最终为 TOIDLE 时才打开 USART_CR1_IDLEIE；一旦这里返回
              *   非 HAL_OK（最常见是 huart->RxState 不是 READY），接收等于没武装——
              *   现象是「一个字节都收不到，且全流程无任何报错」。必须报出来。★ */
-            UART_LOG("%s RX arm FAILED rc=%d (RxState=0x%X) -> 收不到任何数据",
+            UART_LOG("%s RX arm FAILED rc=%d (RxState=0x%X) -> will receive NOTHING",
                      uart_drv_get_name(drv->huart), (int)rc, (unsigned)drv->huart->RxState);
         }
     } else {
-        UART_LOG("%s 无 DMA（hdmarx=NULL）-> 未启动接收（IT 分支未启用）",
+        UART_LOG("%s no DMA (hdmarx=NULL) -> RX not started (IT branch disabled)",
                  uart_drv_get_name(drv->huart));
     }
 }

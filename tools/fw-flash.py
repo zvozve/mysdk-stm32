@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-flash.py —— STM32 J-Link 烧录（SDK 单源工具；取代已删除的 flash.bat）
+fw-flash.py —— STM32 J-Link 烧录（SDK 单源工具；取代已删除的 flash.bat）
 
 为什么要有它（旧 flash.bat 为什么被删）：想让「烧录/调试都不依赖写死的 JLink 路径」，
 bat 做不到干净——它只能用 findstr 抠 .ioc，抠出来的是 CubeMX 的 Mcu.UserName
@@ -18,7 +18,7 @@ STM32F407ZG，全表 5207 项**没有任何以 Tx 结尾的名字**）。Python 
        整条链就都不写死了。
 
 用法（前 6 个位置参数沿用旧 flash.bat 的顺序，行为参数缺省即空串，空串 = 自动检测）:
-    python flash.py [JLROOT] [ELF] [DEV] [ITF] [SPEED] [PROJ] [选项]
+    python fw-flash.py [JLROOT] [ELF] [DEV] [ITF] [SPEED] [PROJ] [选项]
 
     选项:
       --elf PATH           待烧固件的 ELF（取**同名同目录** .bin；OTA 双槽工程**必给**，
@@ -28,6 +28,12 @@ STM32F407ZG，全表 5207 项**没有任何以 Tx 结尾的名字**）。Python 
                            多份 .ld（1024K 原版 + slotA + slotB），字典序第一个是原版，
                            静默使用会把「烧到槽基址」误判成「烧到 0x08000000」→ bin
                            直接盖掉 BL，所以多份时**必须显式指定**（本工具会 fail-fast 列出）
+      --slot A|B           双槽工程专用：取基版 .ld → 派生槽 ORIGIN/LENGTH 并**生成到
+                           build/ 目录**（根目录无需预置 slotX.ld），取其 FLASH ORIGIN 作为
+                           烧录地址（仍是「地址从 .ld 解析」，**禁止写死偏移**）。与 --ld 互斥；
+                           配合 VSC 的「Flash APP」任务烧 APP 到 slot A 用。生成/选中的 .ld
+                           触发 OTA 模式（擦该区+loadfile）。
+                           --slot-addr/--slot-len 可显式覆盖槽几何（默认按 F407 1MB 参考分区）
       --dry-run            只解析并打印「将要执行的 JLink 命令」，不烧录、不写 settings
       --settings-only      只做检测 + 写 settings.json（给 debug 用），不烧录
       --no-write-settings  正常烧录但不写 settings.json
@@ -318,10 +324,91 @@ def parse_ld(proj, ld_path=None):
                 pass
 
     if not ld_path and len(hits) > 1:
+        # OTA 双槽工程根下有多份 .ld（基版 1024K + slotA + slotB）。
+        # 默认 Flash 指向「不含 slot 字样的基版 .ld」—— 其 ORIGIN 即 0x08000000（设备的「默认位置」）。
+        # 基版唯一则用它（地址仍从 .ld 解析，绝不写死）；否则 fail-fast 让用户用
+        # --slot / --ld 显式指定，避免静默烧错槽盖掉 BL。
+        base_hits = [h for h in hits if "slot" not in h[2].lower()]
+        if len(base_hits) == 1:
+            log("多份 .ld：默认选基版（不含 slot）→ %s 作为默认位置（0x%08X）"
+                % (c(base_hits[0][2], CYAN), base_hits[0][0]))
+            return base_hits[0]
         return ("AMBIGUOUS", hits, None, None)
     if hits:
         return (hits[0][0], hits[0][1], hits[0][2], hits[0][3])
     return (None, None, None, None)
+
+
+def find_slot_ld(proj, slot):
+    """
+    双槽工程专用：按 A/B 在工程根选 *slotA*.ld / *slotB*.ld，返回完整路径。
+    找不到 / 找到多份都 die（多份会让人分不清到底烧哪个槽）。
+    """
+    pat = "*slot%s*.ld" % slot.upper()
+    cands = sorted(glob.glob(os.path.join(proj, pat)))
+    if not cands:
+        die("工程根下找不到匹配 %s 的链接脚本（需存在如 STM32F407xx_FLASH_slot%s.ld）"
+            % (pat, slot.upper()))
+    if len(cands) > 1:
+        die("%s 匹配到多份 .ld，无法确定用哪个:\n    %s"
+            % (pat, "\n    ".join(cands)))
+    return cands[0]
+
+
+def slot_geometry(base_origin, base_len, slot, addr_override=None, len_override=None):
+    """
+    由基版 .ld 的 FLASH 范围推导 A/B 槽的 ORIGIN/LENGTH。
+    优先用显式 --slot-addr/--slot-len（不写进 tasks.json，需要时临时给）；
+    否则用参考分区（与设备侧 ota_areas.c 对齐）：F407 1MB，BL+CFG 共 64K 预留。
+    返回 (origin, length)。地址一律从基版 .ld 派生，绝不写死。
+    """
+    if addr_override is not None and len_override is not None:
+        try:
+            return (_size_to_int(addr_override), _size_to_int(len_override))
+        except ValueError:
+            die("--slot-addr/--slot-len 不是合法数字")
+    if base_len == 0x100000:                       # 1MB：F407ZG 参考分区
+        if slot.upper() == "A":
+            return (base_origin + 0x10000, 0x70000)   # 0x08010000 / 448K
+        return (base_origin + 0x80000, 0x80000)        # 0x08080000 / 512K
+    die("未知 Flash 容量 0x%X，无法确定 slot %s 几何；请用 --slot-addr/--slot-len 指定"
+        % (base_len, slot.upper()))
+
+
+def gen_slot_ld(proj, base_ld_path, slot, origin, length):
+    """
+    把基版 .ld 复制进 <proj>/build/，改写 FLASH 的 ORIGIN/LENGTH 为指定槽，返回生成路径。
+    地址从基版 .ld 派生（绝不写死）；生成物落在 build 目录，**根目录无需预置 slot .ld**。
+    """
+    build_dir = os.path.join(proj, "build")
+    os.makedirs(build_dir, exist_ok=True)
+    stem, ext = os.path.splitext(os.path.basename(base_ld_path))
+    out_name = "%s_slot%s%s" % (stem, slot.upper(), ext)
+    out_path = os.path.join(build_dir, out_name)
+    txt = open(base_ld_path, encoding="utf-8", errors="replace").read()
+    pat = re.compile(r"(FLASH\s*\([^)]*\)\s*:\s*ORIGIN\s*=\s*)([^\s,]+)"
+                     r"(\s*,\s*LENGTH\s*=\s*)([^\s,]+)")
+    new_txt, n = pat.subn(lambda m: "%s0x%08X%s0x%08X"
+                           % (m.group(1), origin, m.group(3), length), txt)
+    if n == 0:
+        die("在 %s 没找到 FLASH ORIGIN/LENGTH，无法改写槽地址" % base_ld_path)
+    with open(out_path, "w", encoding="utf-8", newline="") as f:
+        f.write(new_txt)
+    log("生成槽 .ld  : %s  (ORIGIN=0x%08X LENGTH=0x%X)" % (out_path, origin, length))
+    return out_path
+
+
+def resolve_slot_ld(proj, slot, addr_override, len_override):
+    """
+    --slot A|B：优先「基版 .ld → 派生槽 .ld 并生成到 build/」；
+    工程根没有基版 .ld（只有 slotX.ld）时，退回根目录的 *slotX*.ld（向后兼容）。
+    """
+    res = parse_ld(proj)                            # 多 .ld 时自动选「不含 slot」的基版
+    if res[0] == "AMBIGUOUS":
+        return find_slot_ld(proj, slot)
+    base_origin, base_len, _name, base_path = res
+    origin, length = slot_geometry(base_origin, base_len, slot, addr_override, len_override)
+    return gen_slot_ld(proj, base_path, slot, origin, length)
 
 
 def find_bin(elf, proj, bin_path=None):
@@ -498,7 +585,8 @@ def parse_argv(argv):
         elif a == "--no-write-settings":
             flags["no_write"] = True
         elif a in ("--jlink-root", "--device", "--interface", "--speed",
-                   "--proj", "--user-settings", "--color", "--elf", "--ld", "--bin"):
+                   "--proj", "--user-settings", "--color", "--elf", "--ld", "--bin",
+                   "--slot", "--slot-addr", "--slot-len"):
             if i + 1 >= len(argv):
                 die("%s 缺少参数值" % a)
             opt[a.lstrip("-").replace("-", "_")] = argv[i + 1]
@@ -547,7 +635,16 @@ def main():
         c("  (默认值)", DIM) if (itf == DEFAULT_IF and speed == DEFAULT_SPEED) else ""))
 
     # ---- .ld → 模式 ----
-    origin, length, ld, _ld_path = parse_ld(proj, opt.get("ld"))
+    slot = opt.get("slot")
+    ld_path = opt.get("ld")
+    if slot and ld_path:
+        die("--slot 与 --ld 互斥，二选一即可")
+    if slot:
+        if slot.upper() not in ("A", "B"):
+            die("--slot 只接受 A 或 B（大小写均可）")
+        ld_path = resolve_slot_ld(proj, slot, opt.get("slot_addr"), opt.get("slot_len"))
+        log("选槽        : --slot %s → %s" % (slot.upper(), c(os.path.basename(ld_path), CYAN)))
+    origin, length, ld, _ld_path = parse_ld(proj, ld_path)
     if origin == "AMBIGUOUS":
         die("工程根下有 %d 份含 FLASH 分区的 .ld，无法自动选（字典序第一份是 1024K 原版，"
             "静默使用会把 bin 烧到 0x08000000 盖掉 BL）:\n    %s\n"

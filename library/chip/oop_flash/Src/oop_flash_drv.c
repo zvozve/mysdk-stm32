@@ -124,6 +124,15 @@ static int plat_unit_program(uint32_t addr, const uint8_t *bytes)
            ? OOP_FLASH_OK : OOP_FLASH_ERR_WRITE;
 }
 
+/* 清 FLASH 错误标志：上一段程序（如 BL 写 CFG）可能留下 OPERR/WRPERR/PGAERR/
+ * PGPERR/PGSERR，而 HAL 的 FLASH_WaitForLastOperation() 遇到这些标志会**立刻**
+ * 判错（且它只清 EOP、不清错误位）—— 现象就是「本轮第一次擦除在 µs 级失败」。 */
+static void plat_clear_flags(void)
+{
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_OPERR | FLASH_FLAG_WRPERR |
+                           FLASH_FLAG_PGAERR | FLASH_FLAG_PGPERR | FLASH_FLAG_PGSERR);
+}
+
 #endif /* HAL_PLATFORM_F4 */
 
 /* ============================================================
@@ -187,6 +196,12 @@ static int plat_unit_program(uint32_t addr, const uint8_t *bytes)
 
     return (HAL_FLASH_Program(FLASH_TYPEPROGRAM_HALFWORD, addr, (uint64_t)half) == HAL_OK)
            ? OOP_FLASH_OK : OOP_FLASH_ERR_WRITE;
+}
+
+/* F1：标准标志名（EOP/PGERR/WRPRTERR）。 */
+static void plat_clear_flags(void)
+{
+    __HAL_FLASH_CLEAR_FLAG(FLASH_FLAG_EOP | FLASH_FLAG_PGERR | FLASH_FLAG_WRPRTERR);
 }
 
 #endif /* HAL_PLATFORM_F1 */
@@ -262,6 +277,12 @@ static int plat_unit_program(uint32_t addr, const uint8_t *bytes)
 
     return (HAL_FLASH_Program(FLASH_TYPEPROGRAM_DOUBLEWORD, addr, dword) == HAL_OK)
            ? OOP_FLASH_OK : OOP_FLASH_ERR_WRITE;
+}
+
+/* G4：标志名未逐条核实（该分支本就未上板验证），保守不动以免误用不存在的宏。
+ * 首次在 G4 上做 OTA 前，请按 G4 HAL 补 FLASH_FLAG_* 再启用。 */
+static void plat_clear_flags(void)
+{
 }
 
 #endif /* HAL_PLATFORM_G4 */
@@ -405,6 +426,7 @@ int oop_flash_erase(uint32_t addr, uint32_t len)
     if (HAL_FLASH_Unlock() != HAL_OK) {
         return OOP_FLASH_ERR_WRITE;
     }
+    plat_clear_flags();   /* 清 BL/上一次操作遗留的错误标志，否则 HAL 立即判错 */
 
     for (uint32_t i = first.index; i <= last.index; i++) {
         oop_flash_sector_t sec;
@@ -451,6 +473,7 @@ int oop_flash_write(uint32_t addr, const void *buf, uint32_t len)
     if (HAL_FLASH_Unlock() != HAL_OK) {
         return OOP_FLASH_ERR_WRITE;
     }
+    plat_clear_flags();   /* 同上：写之前也清一次，避免上一次的错误标志连累本次 */
 
     /* 1) 头部不足一个写入单位：读回该单位 → 替换目标字节 → 整体重写 */
     misalign = addr % g;
