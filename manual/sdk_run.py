@@ -8,7 +8,9 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
 
 被 .vscode/tasks.json 调用，例如:
     python sdk_run.py flash [JLinkRoot] [ELF] [Device] [Interface] [Speed] [ProjRoot]
-    python sdk_run.py flash --slot A          # 烧 APP 到 slot A（@0x08010000，地址由 .ld 解析，不写死）
+    #   三分片工程：ELF 传 build/TP_MDC{,_A,_B}.elf 即可 —— 地址由「与 .elf 同目录的
+    #   同名 .ld」解析（CMake 生成到 .bin 同目录），无需 --slot、更不写死偏移
+    python sdk_run.py flash --slot A          # （向后兼容）按基版 .ld 派生槽几何再烧
     python sdk_run.py pull
     python sdk_run.py audit
     python sdk_run.py trans <file> [...]
@@ -63,9 +65,9 @@ def main() -> int:
         # 只调 py 版：它能自检 J-Link 安装目录与 .ioc 器件名（规范化后交 J-Link 校验），
         # 并把检测结果写回 settings.json 供 cortex-debug 用 → 烧录/调试都不写死路径。
         # 位置参数 [JLROOT ELF DEV ITF SPEED PROJ]（空串=自动检测）；
-        # 另支持 --slot A|B（自动选工程内 *slotA*.ld / *slotB*.ld）、
-        # --dry-run / --settings-only / --no-write-settings，见 fw-flash.py --help。
-        # 地址一律从 .ld 的 FLASH ORIGIN 解析，**禁止写死偏移/地址**。
+        # 地址解析顺序：--ld/--slot > 「与 .elf 同目录的同名 .ld」 > 工程根基版 .ld，
+        # 全部从 .ld 的 FLASH ORIGIN 取，**禁止写死偏移/地址**。
+        # 另支持 --dry-run / --settings-only / --no-write-settings，见 fw-flash.py --help。
         py = os.path.join(tool_dir, "fw-flash.py")
         if not os.path.isfile(py):
             sys.exit("[sdk_run] 找不到 %s —— SDK 检出过旧（flash.bat 已废弃并删除），"

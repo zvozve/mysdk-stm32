@@ -20,19 +20,23 @@ STM32F407ZG，全表 5207 项**没有任何以 Tx 结尾的名字**）。Python 
 用法（前 6 个位置参数沿用旧 flash.bat 的顺序，行为参数缺省即空串，空串 = 自动检测）:
     python fw-flash.py [JLROOT] [ELF] [DEV] [ITF] [SPEED] [PROJ] [选项]
 
+地址是怎么定的（依次尝试，全部从 .ld 的 FLASH ORIGIN 解析，**禁止写死偏移/地址**）:
+    1) --ld / --slot 显式指定；
+    2) ★ 与固件同目录、同名的 .ld（如 build/TP_MDC_A.elf ↔ build/TP_MDC_A.ld）—— 三分片
+       工程的 CMake 把 TP_MDC{,_A,_B}.ld 生成到 .bin 同目录，于是「编译链接用的脚本」与
+       「烧录解析地址用的脚本」永远是同一份；
+    3) 否则扫工程根 *.ld：多份时自动选「不含 slot 字样的基版」（其 ORIGIN 即默认位置
+       0x08000000）；若有多份基版则 fail-fast 列出让你显式指定，绝不静默猜。
+
     选项:
       --elf PATH           待烧固件的 ELF（取**同名同目录** .bin；OTA 双槽工程**必给**，
                            否则扫描 build/ 下多个槽的 .bin 无法自动分辨）
       --bin PATH           直接指定 .bin（优先级高于 --elf 的同名推导）
-      --ld NAME|PATH       链接脚本（决定烧到哪：ORIGIN=槽基址）。OTA 双槽工程的根下有
-                           多份 .ld（1024K 原版 + slotA + slotB），字典序第一个是原版，
-                           静默使用会把「烧到槽基址」误判成「烧到 0x08000000」→ bin
-                           直接盖掉 BL，所以多份时**必须显式指定**（本工具会 fail-fast 列出）
-      --slot A|B           双槽工程专用：取基版 .ld → 派生槽 ORIGIN/LENGTH 并**生成到
-                           build/ 目录**（根目录无需预置 slotX.ld），取其 FLASH ORIGIN 作为
-                           烧录地址（仍是「地址从 .ld 解析」，**禁止写死偏移**）。与 --ld 互斥；
-                           配合 VSC 的「Flash APP」任务烧 APP 到 slot A 用。生成/选中的 .ld
-                           触发 OTA 模式（擦该区+loadfile）。
+      --ld NAME|PATH       链接脚本（决定烧到哪：ORIGIN=槽基址）。一般不必给 —— 见上面
+                           「地址是怎么定的」的自动解析顺序
+      --slot A|B           双槽工程专用（向后兼容保留）：取基版 .ld → 派生槽 ORIGIN/LENGTH 并
+                           **生成到 build/ 目录**（根目录无需预置 slotX.ld）。与 --ld 互斥；
+                           选中的 .ld 触发 OTA 模式（擦该区 + loadfile）。
                            --slot-addr/--slot-len 可显式覆盖槽几何（默认按 F407 1MB 参考分区）
       --dry-run            只解析并打印「将要执行的 JLink 命令」，不烧录、不写 settings
       --settings-only      只做检测 + 写 settings.json（给 debug 用），不烧录
@@ -411,6 +415,19 @@ def resolve_slot_ld(proj, slot, addr_override, len_override):
     return gen_slot_ld(proj, base_path, slot, origin, length)
 
 
+def find_sibling_ld(bin_path):
+    """
+    「与固件同目录、同名（扩展名换成 .ld）」的链接脚本。
+    三分片工程的 CMake 会把 TP_MDC{,_A,_B}.ld 生成到 .bin 同目录 —— 用它就不必再按
+    --slot 现场派生，而且保证「编译链接用的脚本」与「烧录解析地址用的脚本」是同一份
+    文件（少一个走偏的机会）。地址仍从 .ld 解析，绝不写死。
+    """
+    if not bin_path:
+        return None
+    cand = os.path.splitext(bin_path)[0] + ".ld"
+    return cand if os.path.isfile(cand) else None
+
+
 def find_bin(elf, proj, bin_path=None):
     """
     定位待烧录 .bin：--bin 显式 → ELF 同名同目录 → 扫 build/{Release,Debug}、build/*/、build/。
@@ -634,6 +651,13 @@ def main():
     log("接口 / 速率 : %s%s" % (c("%s / %s kHz" % (itf.upper(), speed), CYAN),
         c("  (默认值)", DIM) if (itf == DEFAULT_IF and speed == DEFAULT_SPEED) else ""))
 
+    # ---- 固件（先定位：下面「与固件同目录的 .ld」规则要用到它的目录）----
+    bin_path = find_bin(elf, proj, opt.get("bin"))
+    if not bin_path:
+        die("找不到 .bin（ELF 参数=%r；已扫 build/Release、build/Debug、build/*/）—— 先编译" % elf)
+    log("固件        : %s  %s" % (c(bin_path, CYAN),
+                                 c("(%.1f KB)" % (os.path.getsize(bin_path) / 1024.0), DIM)))
+
     # ---- .ld → 模式 ----
     slot = opt.get("slot")
     ld_path = opt.get("ld")
@@ -644,6 +668,14 @@ def main():
             die("--slot 只接受 A 或 B（大小写均可）")
         ld_path = resolve_slot_ld(proj, slot, opt.get("slot_addr"), opt.get("slot_len"))
         log("选槽        : --slot %s → %s" % (slot.upper(), c(os.path.basename(ld_path), CYAN)))
+    elif not ld_path:
+        # ★ 优先「与固件同目录的同名 .ld」：三分片工程的 CMake 把三份 .ld 生成到 .bin
+        #   同目录，用它可保证编译链接与烧录解析同源（不必再按 --slot 现场派生）。
+        sib = find_sibling_ld(bin_path)
+        if sib:
+            ld_path = sib
+            log("链接脚本    : 同目录 %s（三片构建生成；编译链接与烧录解析同源）"
+                % c(os.path.basename(sib), CYAN))
     origin, length, ld, _ld_path = parse_ld(proj, ld_path)
     if origin == "AMBIGUOUS":
         die("工程根下有 %d 份含 FLASH 分区的 .ld，无法自动选（字典序第一份是 1024K 原版，"
@@ -664,11 +696,6 @@ def main():
         mode = "普通（不擦除，沿用旧 flash.bat 行为）"
         erase_end = DEFAULT_ERASE_END
 
-    # ---- 固件 ----
-    bin_path = find_bin(elf, proj, opt.get("bin"))
-    if not bin_path:
-        die("找不到 .bin（ELF 参数=%r；已扫 build/Release、build/Debug、build/*/）—— 先编译" % elf)
-    log("固件        : %s  %s" % (c(bin_path, CYAN), c("(%.1f KB)" % (os.path.getsize(bin_path) / 1024.0), DIM)))
     log("模式        : %s" % c(mode, YELLOW if ota else DIM))
 
     # ---- settings.json 写回（给 debug 用）----

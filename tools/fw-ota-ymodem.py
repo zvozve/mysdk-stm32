@@ -39,9 +39,16 @@ ota_ymodem.py —— OTA 主机端：把固件包经 YMODEM 发给设备（OTA �
   python ota_ymodem.py --port COM13 --baud 115200 dist/TP_MDC_A.bin
   python ota_ymodem.py --no-trigger --packet 128 dist/TP_MDC_A.bin   # 128 字节小包模式
   python ota_ymodem.py --gui                                        # 弹文件选择框（默认过滤 .bin）
+   python ota_ymodem.py --gui --no-autoslot                          # 关掉自动挑槽（就发所选那份）
+
+  ★ 自动挑槽（默认开）：设备收到触发字节后会回报一行 `#OTA target=A|B`（它自己用
+    ota_area_select_target 算，会自动避开当前运行槽），脚本据此在同目录换成对应的那份
+    镜像（TP_MDC.bin <-> TP_MDC_A.bin <-> TP_MDC_B.bin）。所以弹窗里**随便选一个**都行，
+    「该发哪个槽」由设备决定，不靠人挑，更不写死地址。
 """
 import argparse
 import os
+import re
 import struct
 import sys
 import time
@@ -247,7 +254,7 @@ def ymodem_send(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
 
 def send_meta_first(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.0,
                     c_timeout=10.0, pkt_timeout=5.0, retry=10, post_c_delay=0.05,
-                    debug=False):
+                    debug=False, autoslot=True):
     """
     元数据优先模式（--meta）：先发一个 8 字节元数据文件（size(u32 LE) + crc32(u32 LE)），
     再发真正的 bin。设备先收元数据、记住「期望大小 + 期望 CRC32」，随后收 bin 时即可：
@@ -256,7 +263,19 @@ def send_meta_first(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.
         从而能发现 PC 端 bin 本身已损坏的情况。
     CRC32 与设备侧 ota_crc32 完全一致（CRC-32/ISO-HDLC = zlib.crc32）。
     注意：设备固件需支持「先收元数据」模式（两段 YMODEM）；未支持时请用普通模式。
+
+    自动挑槽（默认开，--no-autoslot 关）：发完触发字节后设备会回报 `#OTA target=A|B`，
+    本函数据此在同目录换成对应后缀的那一份镜像 —— 操作上「随便选一个 .bin」即可。
     """
+    # ---- 1) 触发设备，并（默认）让它自报目标槽 -> 自动换成该槽对应的那一份镜像 ----
+    if trigger:
+        ser.write(trigger)
+        print("[INFO] 已发送触发字节 %r，等待 %g s" % (trigger, wait_trigger))
+        time.sleep(wait_trigger)
+        if autoslot:
+            filepath = pick_target_fw(ser, filepath)
+
+    # ---- 2) 按「实际要发的那一份」算 size / crc32（上面可能换过文件）----
     size = os.path.getsize(filepath)
     crc = 0
     with open(filepath, "rb") as f:
@@ -277,10 +296,7 @@ def send_meta_first(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.
               c_timeout=c_timeout, pkt_timeout=pkt_timeout, retry=retry,
               post_c_delay=post_c_delay, debug=debug)
     try:
-        if trigger:
-            ser.write(trigger)
-            print("[INFO] 已发送触发字节 %r，等待 %g s" % (trigger, wait_trigger))
-            time.sleep(wait_trigger)
+        print("[INFO] 即将发送: %s" % filepath)
         print("[INFO] >>> 第 1 段：元数据 (size + crc32)")
         if ymodem_send(ser, tf.name, **kw) != 0:
             return 1
@@ -291,6 +307,65 @@ def send_meta_first(ser, filepath, packet=DATA_1K, trigger=b'U', wait_trigger=1.
             os.unlink(tf.name)
         except OSError:
             pass
+
+
+def read_slot_announce(ser, timeout=3.0):
+    """
+    读设备回报的一行 `#OTA target=X`（ASCII，以 '\\n' 结束）。
+    读到 '\\n' 立即返回，**绝不多读一个字节** —— 设备紧接着要发 YMODEM 的握手 'C'，
+    多读就会把它吞掉。返回 'A'/'B'；设备答了但目标槽非法（无槽可写）返回 ''；
+    设备没回报（旧固件）返回 None。
+    """
+    t0 = time.time()
+    buf = b""
+    while (time.time() - t0) < timeout:
+        ch = ser.read(1)
+        if not ch:
+            continue
+        buf += ch
+        if ch == b"\n":
+            line = buf.decode("ascii", "replace").strip()
+            buf = b""
+            if not line.startswith("#OTA"):
+                continue                     # 噪声/回显，继续等公告
+            m = re.search(r"target\s*=\s*([AB])", line)
+            return m.group(1) if m else ""
+    return None
+
+
+def find_sibling_fw(filepath, slot):
+    """
+    在同目录里找「目标槽」那一份镜像：
+        TP_MDC.bin   + 槽 B -> TP_MDC_B.bin
+        TP_MDC_A.bin + 槽 B -> TP_MDC_B.bin     （先剥掉已有的 _A/_B 后缀）
+    找不到返回 None —— 调用方必须报错，绝不随便发一份地址不匹配的镜像（会写坏一个槽）。
+    """
+    d = os.path.dirname(os.path.abspath(filepath))
+    b = os.path.basename(filepath)
+    stem = re.sub(r"_[AB](\.[^.]*)$", r"\1", b)
+    cand = os.path.join(d, re.sub(r"(\.[^.]*)$", r"_%s\1" % slot, stem))
+    return cand if os.path.isfile(cand) else None
+
+
+def pick_target_fw(ser, filepath, timeout=3.0):
+    """
+    问设备「你要收哪个槽」，据此自动挑同目录的另一份镜像。
+    这是「不写死地址、不手动选分区」的最后一环：目标槽由设备侧的
+    ota_area_select_target() 算（自动避开当前运行槽），主机只负责把对应文件找出来。
+    """
+    slot = read_slot_announce(ser, timeout)
+    if slot is None:
+        print("[INFO] 设备未回报槽位（旧固件？）-> 按所选文件原样发送")
+        return filepath
+    if slot == "":
+        sys.exit("[ota_ymodem] 设备自报「没有可写入的目标槽」—— 这份固件可能不是槽内固件")
+    target = find_sibling_fw(filepath, slot)
+    if target is None:
+        sys.exit("[ota_ymodem] 设备要槽 %s 的镜像，但 %s 同目录里没有 *_%s.bin\n"
+                 "             请先用 VS Code 的 Build 产出三分片（TP_MDC / TP_MDC_A / TP_MDC_B）"
+                 % (slot, os.path.dirname(os.path.abspath(filepath)), slot))
+    print("[OK] 设备要槽 %s -> 自动选用 %s" % (slot, os.path.basename(target)))
+    return target
 
 
 def main() -> int:
@@ -319,6 +394,10 @@ def main() -> int:
                          "仅当设备固件是旧版（不支持「先收元数据」）时才需要")
     ap.set_defaults(meta=True)
     ap.add_argument("--gui", action="store_true", help="未给 file 时用文件选择框（需 tkinter）")
+    ap.add_argument("--no-autoslot", dest="autoslot", action="store_false",
+                    help="关闭「按设备自报的目标槽自动挑同目录镜像」（默认开）。"
+                         "设备不回报槽位时本开关无影响（本来就会回退为原样发送）")
+    ap.set_defaults(autoslot=True)
     args = ap.parse_args()
 
     filepath = args.file
@@ -362,7 +441,8 @@ def main() -> int:
         rc = send_meta_first(ser, filepath, packet=args.packet, trigger=trigger,
                              wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
                              pkt_timeout=args.pkt_timeout, retry=args.retry,
-                             post_c_delay=args.post_c_delay, debug=args.debug)
+                             post_c_delay=args.post_c_delay, debug=args.debug,
+                             autoslot=args.autoslot)
     else:
         rc = ymodem_send(ser, filepath, packet=args.packet, trigger=trigger,
                          wait_trigger=args.trigger_delay, c_timeout=args.c_timeout,
