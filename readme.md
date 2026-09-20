@@ -14,7 +14,7 @@
 
 ## 版本
 
-- SDK 版本：**0.11.0**（2026-09-18）
+- SDK 版本：**0.12.0**（2026-09-20）
 - Manifest schema：**1.0**（`sdk_manifest.json`）
 - 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -95,6 +95,23 @@ board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖
 
 > 布局约定：把 `sdk.toml` 与 `board_cfg.h` 放在 `MySDK/` **之外**（如 `User/`），
 > 因为 `MySDK/` 每次拉取会被整体清空重建。推荐结构见第 4 节。
+
+#### RTOS / 裸机：只改 `board_cfg.h` 一行
+
+`board_cfg.h` 同时也是 SDK 的**构建模式开关**所在地（不再需要往 CMakeLists 传宏）：
+
+```c
+#define BOARD_USE_RTOS   0   /* 1 = FreeRTOS / CMSIS-RTOS2 宿主；0 = 裸机 */
+```
+
+- 优先级：`-DBOARD_USE_RTOS` > `board_cfg.h` > 默认 `0`（裸机）——`hal_platform.h` 只给未填的工程兜底，不另造第二个名字；
+  `BOARD_USE_RTOS` 经 `SDK_BOARD_CFG` 闸由 SDK 头读入，消费点**只允许在 `chip/` 层**。
+- 上层（`devices/` `protocols/` `services/` `middleware/` app）**不得出现任何 RTOS 分支**、不得 include
+  `FreeRTOS.h`：时基与延时统一走 `oop_GetTickMS()` / `oop_DelayMS()`（RTOS 下取调度器 tick、延时让出 CPU；
+  裸机下取 HAL 时基 + DWT 忙等）。开关只影响 `chip/oop_dwt` 的实现。
+- RTOS 工程请确认 `configTICK_RATE_HZ` 整除 1000（100/200/250/500/1000 都行），否则 `oop_dwt.c`
+  在编译期 `#error`——宁可编译失败，也不要在日志里得到错的时间戳。
+- `board_cfg.h` 不得 include 任何 SDK 头：`hal_platform.h` 会反向 include 它，防循环包含。
 
 ### 2. 如何拉取
 
@@ -245,6 +262,32 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+### RTOS 开关收敛到 `board_cfg.h` + middleware / 协议层彻底不碰 HAL 与 RTOS（2026-09-20，v0.12.0）
+
+背景：`middleware/SEGGER_RTT/Inc/SEGGER_RTT_Log.h` 的裸机分支直调 `HAL_GetTick()` 并 include `hal_platform.h`，
+`protocols/modbus/Inc/modbus_core.h` 又自带一套 `MB_USE_RTOS`——同一个 SDK 里出现了**四种**「宿主是不是 RTOS」的判据
+（`RTT_USE_RTOS` / `MB_USE_RTOS` / `__RTOS__` / app 侧 `APP_USE_RTOS`），工程要手传两个宏才不出错。
+
+1. **开关唯一化**：新增 `BOARD_USE_RTOS`（工程 `User/board_cfg.h`，与引脚绑定同一处），`hal_platform.h` 在
+   `SDK_BOARD_CFG` 闸下读它，工程没填时兜底默认 0（裸机）——不另造 `MB_USE_RTOS` 这类归一化别名；
+   `BOARD_USE_RTOS` **只允许出现在 `chip/` 层**。
+2. **`chip.oop_dwt` 升 V2.1**：删掉 `__RTOS__`（全库无人定义，`oop_dwt.c` 的 `HAL_Delay` 让出路径一直是死代码），改按 `BOARD_USE_RTOS` 切——
+   `oop_GetTickMS()`：RTOS 取 `xTaskGetTickCount()`（`configTICK_RATE_HZ` 必须整除 1000，编译期 `#error`；取调度器 tick 是为了不依赖
+   「工程已把 CubeMX 的 HAL timebase 从 SysTick 挪到 TIM」这一不可见设置），裸机取 `HAL_GetTick()`；
+   `oop_DelayMS()` / `HAL_Delay()`：调度器已启动则 `vTaskDelay` 让出 CPU，未启动（main 初始化期）或裸机退回 DWT 忙等。
+   头文件不再 include 任何 RTOS 头，RTOS 分支只存在于 `oop_dwt.c`。
+3. **`middleware.SEGGER_RTT` 零 HAL / 零 RTOS**：日志头删掉 `RTT_USE_RTOS` / `FreeRTOS.h` / `HAL_GetTick()` / `hal_platform.h`；
+   时间戳改为「只声明 chip 层时基符号 `oop_GetTickMS()`」注入（`-DRTT_GET_TICK=...` 可换）。未拉取 `chip.oop_dwt` 时
+   **链接期**报 undefined reference，替代旧写法「`HAL_GetTick()` 停摆时静默打成 `00:00:00`」。故其 `depends` 补上 `chip.oop_dwt`。
+4. **`protocols.modbus` 零 RTOS**：删除私有宏 `MB_USE_RTOS` 与全部 RTOS 分支，`MB_GET_TICK()` / `MB_Delay_ms()` 一律走 `chip.oop_dwt`；
+   顺带消除「源仓版本无 `#ifndef` 守卫、工程 `MySDK/` 副本有守卫」的分叉（那处分叉会让下一次 `sdk-pull` 回退工程的裸机配置）。
+5. **工程侧**：`CMakeLists.txt` 不再传 `MB_USE_RTOS` / `RTT_USE_RTOS`，只在 `User/board_cfg.h` 填一行 `BOARD_USE_RTOS`；
+   app 侧私有的 `APP_USE_RTOS`（且用 `#ifdef` 判断，`-D=0` 根本无效）统一改读 `BOARD_USE_RTOS`。
+6. **`MB_BOARD_CFG` → `SDK_BOARD_CFG`**：这个「读 board_cfg」总闸出生在 `modbus_core.h`（第一个需要它的模块），
+   名字却带上了 Modbus 前缀——一并改掉。`ota-demo-stm32` 已同步改名并重拉重编；`elecmgt-driver/mcu`、
+   `meterdatactrl/mcu_hw_1_4`、`mcu_hw_2_0` 仍用**旧 MySDK + 旧宏名**（自洽可用），**下次 `sdk-pull` 时必须把
+   CMakeLists 里的 `MB_BOARD_CFG` 换成 `SDK_BOARD_CFG`（2 处）**，否则新 SDK 头不会 include board_cfg.h，
+   功能开关会静默退回安全默认值（尤其 `BOARD_HEART_IWDG_ENABLE` 缺省不喂狗）。
 ### 新增 protocols.ymodem + services.ota + services.ota_src_uart（2026-09-18，v0.11.0）
 
 APP 侧升级链路打通（P3）。方案文档：`ota-demo-stm32/doc/01~06`。

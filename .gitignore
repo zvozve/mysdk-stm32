@@ -16,6 +16,8 @@
 # ── SDK 自身工具输出 ──
 # 本机待办草稿，非仓库资产
 todo.md
+# 本机已使用仓库，方便后续更新维护，非仓库资产
+projectlist.md
 __pycache__/
 *.pyc
 

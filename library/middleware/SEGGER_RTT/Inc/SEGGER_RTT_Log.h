@@ -1,22 +1,22 @@
 #ifndef __SEGGER_RTT_LOG_H
 #define __SEGGER_RTT_LOG_H
 
-#ifndef RTT_USE_RTOS
-    #define RTT_USE_RTOS       1   /* 默认 RTOS；裸机工程可 -DRTT_USE_RTOS=0 走 HAL_GetTick() 分支 */
-#endif
-
 #include <stdint.h>
 
-#if RTT_USE_RTOS
-#include "FreeRTOS.h"
-#include "task.h"
-#define RTT_GET_TICK()      xTaskGetTickCount()
-#else
-/* 裸机分支：HAL_GetTick 需要 HAL 原型。在这里 include hal_platform.h 而不是要求
- * 使用方「先 include HAL 头再 include 本头」—— 头文件要自洽，否则 include 顺序
- * 一换（比如新模块先 include 日志头）就是一串 implicit declaration。 */
-#include "hal_platform.h"
-#define RTT_GET_TICK()      (HAL_GetTick() > 0 ? HAL_GetTick() : 0)
+/* ============================================================
+ * 时间戳来源（middleware 层不碰 HAL / RTOS）
+ * ------------------------------------------------------------
+ * 本头不再 include hal_platform.h，也不再 include FreeRTOS.h：
+ * 时基一律取 chip 层的唯一出口 oop_GetTickMS()（内部自行区分 RTOS / 裸机）。
+ * 这里只做「外部符号声明」，不是 include —— 于是
+ *   - include 顺序无关：不管谁先 include 本头都不会有 implicit declaration；
+ *   - 未拉取 chip.oop_dwt 时在**链接期**报 undefined reference（fail-fast），
+ *     而不是像旧写法那样在 tick 停摆时静默打成 00:00:00。
+ * 需要换时基（如 PC 单测传假 tick）：-DRTT_GET_TICK=你的可调用表达式。
+ * ============================================================ */
+#ifndef RTT_GET_TICK
+    extern uint32_t oop_GetTickMS(void);
+    #define RTT_GET_TICK()      oop_GetTickMS()
 #endif
 
 #ifndef RTT_LOG_ENABLE
