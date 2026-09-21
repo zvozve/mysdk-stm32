@@ -27,6 +27,8 @@ sdk_run.py —— 工程侧接口桥（单文件，零 SDK 逻辑）
     audit      -> tools/sdk-check-oop.py + tools/check-eol.py
                   （审计 = ①OOP/HAL 红线 ②行尾体检，两道都要过）
     trans      -> tools/format-gbk2utf8.py
+    trans16    -> tools/format-utf16be2utf8.py  （与 trans 互补：UTF-16 LE/BE / UTF-8-BOM -> UTF-8 无 BOM）
+    gencmake   -> tools/gen-cmake-paths.py     （扫描工程目录生成 CMake 源/包含路径片段；面向手工维护 User/ 源码、未走 sdk-pull 接线的工程）
     pack       -> tools/fw-ota-pack.py   （仅脚本保留，无 VSC 任务；raw-bin 流程下一般不再需要）
     ymodem     -> tools/fw-ota-ymodem.py （直接发 raw .bin，设备侧自动选槽）
 """
@@ -100,6 +102,20 @@ def main() -> int:
     if task == "trans":
         script = os.path.join(tool_dir, "format-gbk2utf8.py")
         print("[sdk_run] trans ->", script, rest)
+        return subprocess.run([sys.executable, script, *rest]).returncode
+
+    if task == "trans16":
+        # 与 trans(GBK->UTF8) 互补：UTF-16 LE/BE / UTF-8-BOM -> UTF-8 无 BOM。
+        # 某些编辑器「Unicode / Unicode big endian」保存会把 .c/.h 写成 UTF-16，编译器报乱码。
+        script = os.path.join(tool_dir, "format-utf16be2utf8.py")
+        print("[sdk_run] trans16 ->", script, rest)
+        return subprocess.run([sys.executable, script, *rest]).returncode
+
+    if task == "gencmake":
+        # 扫描工程目录生成 CMake 源/包含路径片段（面向手工维护 User/ 源码、未走 sdk-pull 接线的工程）。
+        # 位置参数 [ROOT]（默认 "."）；可选 --output FILE 写片段，--target NAME 指定目标名。
+        script = os.path.join(tool_dir, "gen-cmake-paths.py")
+        print("[sdk_run] gencmake ->", script, rest)
         return subprocess.run([sys.executable, script, *rest]).returncode
 
     if task == "pack":

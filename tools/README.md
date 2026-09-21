@@ -19,6 +19,8 @@
 |---|---|
 | `fw-flash.py` | STM32 J-Link 烧录：自检 J-Link 安装目录（参数>环境变量>注册表/扫描/PATH 里取版本最高）、从 `.ioc` 的 `Mcu.CPN` 规范化出 J-Link 器件名、读 `.ld` 判断 OTA/普通模式，并把检测结果写回工程 `.vscode/settings.json` 供 cortex-debug 用。带 `--slot A\|B`（自动选工程内 `*slotA*.ld`/`*slotB*.ld`，地址从 .ld 解析，禁写死）、`--dry-run` / `--settings-only` / `--no-write-settings` / `--color auto\|always\|never`（沿用旧 flash.bat 的彩色提示；输出重定向时自动无色） |
 | `format-gbk2utf8.py` | GBK/GB2312 源码批量转 UTF-8 |
+| `format-utf16be2utf8.py` | 与 `format-gbk2utf8.py` 互补：UTF-16(LE/BE) / UTF-8-BOM 文本转 UTF-8 无 BOM（编辑器「Unicode / Unicode big endian」保存导致的乱码归一化）；`--recursive` 递归常见源码后缀 |
+| `gen-cmake-paths.py` | 扫描工程目录生成 CMake 源/包含路径片段（`file(GLOB_RECURSE ...)` + `target_sources` + `target_include_directories`），面向手工维护 `User/` 源码、未走 `sdk-pull` 接线的工程；`[ROOT]` 默认 `.`，`--output FILE` 写片段，`--target NAME` 指定目标名 |
 | `fw-ota-ymodem.py` | OTA 主机端：经 YMODEM 把 **raw .bin** 发给设备（设备侧自动选非运行槽写入）。`--gui` 弹文件框，`--port/--baud` 指定串口，`--trigger` 指定触发字节（默认 'U'） |
 | `fw-ota-pack.py` | 可选：把 bin 打成 `.otapkg` 包供 HTTP 等需「侧信道元数据」的源用；raw-bin（YMODEM）流程下一般不再需要 |
 
@@ -30,7 +32,7 @@
 ## 调用链（关键：SDK 位置只在 `sdk.toml` 一处配置）
 ```
 工程 .vscode/tasks.json
-   └─> python <工程根>/sdk_run.py <flash|pull|audit|trans|ymodem|pack> ...
+   └─> python <工程根>/sdk_run.py <flash|pull|audit|trans|trans16|gencmake|ymodem|pack> ...
           └─> 读 User/sdk.toml 的 [sdk] 得到 SDK 根
                 └─> 调用 <SDK根>/tools/<对应工具>
 ```
