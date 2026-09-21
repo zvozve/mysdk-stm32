@@ -231,11 +231,12 @@ int mqtt_client_disconnect(mqtt_client_t *client) {
     if (!client) return -1;
     MQTT_LOG("Disconnecting...");
 
-    uint16_t len;
-    mqtt_build_disconnect(client->tx_buffer, &len);
-
-    if (client->transport.send) {
-        client->transport.send(client->tx_buffer, len);
+    uint16_t len = 0;
+    if (mqtt_build_disconnect(client->tx_buffer, &len) != 0) {
+        MQTT_LOG("Disconnect build failed");
+    } else if (client->transport.send) {
+        int ret = client->transport.send(client->tx_buffer, len);
+        if (ret != 0) MQTT_LOG("Disconnect send failed, ret=%d", ret);
     }
 
     client->is_connected = false;
@@ -262,9 +263,13 @@ int mqtt_client_publish(mqtt_client_t *client, const char *topic,
 
     MQTT_LOG("Publishing: topic=%s, len=%d, qos=%d", topic, len, qos);
 
-    uint16_t pkt_len;
+    uint16_t pkt_len = 0;
     int packet_id = mqtt_build_publish(client, client->tx_buffer, &pkt_len,
                                         topic, payload, len, qos, retained);
+    if (packet_id < 0) {
+        MQTT_LOG("Publish build failed, rc=%d", packet_id);
+        return -3;
+    }
 
     if (client->transport.send) {
         int ret = client->transport.send(client->tx_buffer, pkt_len);
@@ -295,8 +300,12 @@ int mqtt_client_subscribe(mqtt_client_t *client, const char *topic, mqtt_qos_t q
 
     client->state = MQTT_STATE_SUBSCRIBING;
 
-    uint16_t pkt_len;
+    uint16_t pkt_len = 0;
     int packet_id = mqtt_build_subscribe(client, client->tx_buffer, &pkt_len, topic, qos);
+    if (packet_id < 0) {
+        MQTT_LOG("Subscribe build failed, rc=%d", packet_id);
+        return -3;
+    }
 
     if (client->transport.send) {
         int ret = client->transport.send(client->tx_buffer, pkt_len);
@@ -315,8 +324,12 @@ int mqtt_client_unsubscribe(mqtt_client_t *client, const char *topic) {
 
     MQTT_LOG("Unsubscribing: topic=%s", topic);
 
-    uint16_t pkt_len;
+    uint16_t pkt_len = 0;
     int packet_id = mqtt_build_unsubscribe(client, client->tx_buffer, &pkt_len, topic);
+    if (packet_id < 0) {
+        MQTT_LOG("Unsubscribe build failed, rc=%d", packet_id);
+        return -3;
+    }
 
     if (client->transport.send) {
         int ret = client->transport.send(client->tx_buffer, pkt_len);
@@ -334,8 +347,11 @@ int mqtt_client_ping(mqtt_client_t *client) {
     if (!client) return -1;
     if (!client->is_connected) return -2;
 
-    uint16_t len;
-    mqtt_build_pingreq(client->tx_buffer, &len);
+    uint16_t len = 0;
+    if (mqtt_build_pingreq(client->tx_buffer, &len) != 0) {
+        MQTT_LOG("Ping build failed");
+        return -3;
+    }
 
     if (client->transport.send) {
         int ret = client->transport.send(client->tx_buffer, len);
