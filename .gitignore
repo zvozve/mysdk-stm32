@@ -12,6 +12,7 @@
 .cache/
 # .vscode/ 整体入库；只挡日志
 .vscode/*.log
+.vscode/settings.json
 
 # ── SDK 自身工具输出 ──
 # 本机待办草稿，非仓库资产
