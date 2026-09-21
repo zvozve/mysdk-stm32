@@ -154,6 +154,30 @@
             "group": "build",
             "presentation": { "reveal": "always", "panel": "shared" },
             "problemMatcher": []
+        },
+        {
+            "label": "Format UTF-16 2 UTF-8",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "trans16",
+                "${workspaceFolder}", "--recursive"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
+        },
+        {
+            "label": "Gen CMake Paths",
+            "type": "shell",
+            "command": "python",
+            "args": [
+                "${workspaceFolder}/sdk_run.py", "gencmake",
+                "${workspaceFolder}"
+            ],
+            "group": "build",
+            "presentation": { "reveal": "always", "panel": "shared" },
+            "problemMatcher": []
         }
     ]
 }
