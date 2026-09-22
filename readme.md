@@ -234,6 +234,21 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
 
 ### 5. 注意事项 / 坑
 
+- **`*_hal.c`（HAL 弱符号强覆盖）必须由宿主可执行目标「直接链接」——否则静默失效（2026-09-22 实测）**：
+  `mysdk` 是 STATIC 库，链接器只拉取「尚存在未定义符号引用」的库成员；而 `*_hal.c` 里的
+  `HAL_UART_TxCpltCallback` / `HAL_UARTEx_RxEventCallback` / `HAL_UART_ErrorCallback` /
+  `HAL_GPIO_EXTI_Callback` / `HAL_I2S_TxCpltCallback` 全是**对 HAL `__weak` 空实现的强覆盖**——
+  HAL 驱动已定义该符号，链接器认为无未定义引用 → 这些 `.o` 永不进镜像，且**编译/链接/烧录全程零报错**。
+  症状（`chip.oop_uart`）：`uart_drv_send()` 只有第一次「看起来成功」——DMA 是硬件自主搬运，首帧照样
+  上线（所以串口能看到第一行日志），但 TxCplt 回调走空实现 → `drv->state` 永久停在 `TX_BUSY` →
+  之后每次发送返回 -2 被上层丢弃；同时 `uart_drv_on_idle()`（空闲中断收包）整体失效，收不到任何数据。
+  已修：`library/CMakeLists.txt` 把 `*_hal.c` 摘出来做 `mysdk_hal_glue` OBJECT 库并直接挂到
+  `${CMAKE_PROJECT_NAME}`（试过 `PUBLIC`/`INTERFACE` 经 mysdk 传递、`-Wl,-u,<symbol>`，**均无效**：
+  前者被 CMake 塞回 .a 或不传，后者因普通 .o 里的弱定义先解析掉符号而仍不拉取库成员）。
+  **工程侧自检**（换 CMake、换工程后值得复跑）：
+  `grep -A2 "^ .text.HAL_UART_TxCpltCallback$" build/*/TP_*.map` 应指向
+  `mysdk_hal_glue.dir/.../oop_uart_drv_hal.c.obj` 且带真实地址；若指向 `stm32f4xx_hal_uart.c.obj`
+  且地址是 `0x00000000`（Discarded 区），说明它又回去了。
 - **别手改 `MySDK/` 内任何文件**：每次拉取整体覆盖（要改就改 SDK 源仓再重新拉取）。
 - **拉取后记得提交 `MySDK/`**：它已入库，sync 完 `git status` 会列出增删改，这些变更属于工程的一部分，需一并提交；否则别人 clone 到的仍是旧镜像。
 - **`board_cfg.h` 会被保留**，但前提是它是「真实非空文件」。云端盘（Google Drive 在线-only）
