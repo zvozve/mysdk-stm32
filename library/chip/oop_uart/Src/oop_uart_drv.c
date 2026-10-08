@@ -153,7 +153,16 @@ static void uart_7bit_encode(uint8_t *buf, uint16_t len, uint8_t odd) {
 // ===========================
 static void start_rx(uart_drv_t *drv) {
     if (drv->state == UART_DRV_ERROR) return;
-    
+
+    /* ★ 只写设备（无 RX DMA）直接早退 ★
+     * 典型场景：LED 屏用的 USART6 只有 TX DMA，本来就不接收。但
+     * uart_drv_on_tx_done() 每发完一帧都会调本函数重启接收，于是每发一帧
+     * 就刷一行 "no DMA -> RX not started" 噪音（实测 LED 每秒刷新 → 每秒一条，
+     * 50 秒刷了 50 行，淹没真正的调试信息）。
+     * 该判定是静态的（hdmarx 在 CubeMX MspInit 里一次配好，运行期不变），
+     * 初始化时已打印过一次，此处不再重复打印。 */
+    if (drv->huart->hdmarx == NULL) return;
+
     // ★ 清除所有标志 ★
     HAL_UART_AbortReceive(drv->huart);
     __HAL_UART_CLEAR_FLAG(drv->huart, UART_FLAG_ORE | UART_FLAG_IDLE);
@@ -161,7 +170,7 @@ static void start_rx(uart_drv_t *drv) {
     drv->rx_len = 0;
     drv->state = UART_DRV_IDLE;
     
-    if (drv->huart->hdmarx != NULL) {
+    {
         HAL_StatusTypeDef rc = HAL_UARTEx_ReceiveToIdle_DMA(drv->huart, drv->rx_buf, UART_DRV_BUF_SIZE);
         if (rc != HAL_OK) {
             /* ★ 静默死锁陷阱（2026-09-18）：HAL_UARTEx_ReceiveToIdle_DMA 只在
@@ -171,9 +180,6 @@ static void start_rx(uart_drv_t *drv) {
             UART_LOG("%s RX arm FAILED rc=%d (RxState=0x%X) -> will receive NOTHING",
                      uart_drv_get_name(drv->huart), (int)rc, (unsigned)drv->huart->RxState);
         }
-    } else {
-        UART_LOG("%s no DMA (hdmarx=NULL) -> RX not started (IT branch disabled)",
-                 uart_drv_get_name(drv->huart));
     }
 }
 
