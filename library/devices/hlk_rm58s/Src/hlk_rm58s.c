@@ -230,7 +230,13 @@ static void hlk_send_next_cmd(hlk_drv_t *d) {
     memset(d->cfg.response, 0, sizeof(d->cfg.response));
 
     char tx_buf[136];
-    snprintf(tx_buf, sizeof(tx_buf), "%s", cmd_buf);
+    /* ★ HLK-RM58S 只认 CRLF 结尾的 AT 命令 ★
+     * g_at_cmds[] 里存的是裸命令（"at+netmode=2"），必须在此补 "\r\n"。
+     * 缺了它模块视为"输入未结束"，永远不回 ok —— 现象是 uart_drv_send() 成功
+     * （DMA 搬运正常、tx_done OK），但 3 秒后 response 超时，13 条命令全部
+     * 重试耗尽后无限重启配置，且全程无任何报错，极难定位。
+     * 实测对照：补上后 13 条 AT 全部 "ok"、30ms/条连续通过、链路正常 LINKED。 */
+    snprintf(tx_buf, sizeof(tx_buf), "%s\r\n", cmd_buf);
     uart_drv_send(d->uart, (uint8_t*)tx_buf, strlen(tx_buf));
 }
 
