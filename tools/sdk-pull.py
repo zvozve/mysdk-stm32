@@ -5,6 +5,7 @@ sdk-pull.py —— mysdk-stm32 子集拉取工具（SDK → 工程）
 
 用法:
     python sdk-pull.py <工程根>/User/sdk.toml [--sdk <SDK根目录>] [--dry-run]
+                       [--only all|lib|tools] [--no-tools]
 
 sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
     sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sdk-pull.py 自动以其自身所在目录定位仓库
@@ -12,18 +13,25 @@ sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处�
                                             #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
     board_cfg  = "board_cfg.h"             # 绑定文件，相对 sdk.toml 所在目录 User/ 解析；
                                             #   已存在则不覆盖（工程资产）
+    tools_dir  = "tools"                   # host 工具落点，相对 dest 解析；默认 tools，即 MySDK/tools
 
     [modules]                              # 显式选择；depends 闭包自动补全
     "chip.oop_dwt"   = true
     "devices.ir_transmitter" = true
+
+    [tools]                                # host 工具选择；缺该段则不拉工具（保持老工程行为）
+    "fw-flash"       = true
+    "fw-ota-ymodem"  = true
 
 行为:
     1. 读 sdk_manifest.json，解析所选模块的 depends 闭包（external:* 跳过）
     2. 整目录镜像拷贝 模块 → dest/<layer>/<module>/（先清掉 dest，保证单源真相）
     3. 拷贝 SDK 载荷根 CMakeLists.txt（<SDK>/library/CMakeLists.txt，与各 layer 同级）
        工程侧 add_subdirectory(<dest>) + 链接 mysdk 目标即可，无需维护源文件清单
-    4. 生成 board_cfg.h 绑定模板（仅当文件不存在；具体引脚/句柄由工程填写）
-    5. 写 dest/_sdk_sync.txt 戳（SDK 版本、时间、模块清单）
+    4. 按 [tools] 把选中的 host 工具镜像到 <dest>/<tools_dir>/，并在该目录生成 readme.md
+       与 _tools_sync.txt —— 工程自带工具后，sdk_run.py 不再依赖 SDK 检出即可 Flash/OTA
+    5. 生成 board_cfg.h 绑定模板（仅当文件不存在；具体引脚/句柄由工程填写）
+    6. 写 dest/_sdk_sync.txt 戳（SDK 版本、时间、模块与工具清单）
 """
 
 import argparse
@@ -118,17 +126,148 @@ def mirror_module(sdk_root: Path, mod: dict, dest_root: Path, dry: bool):
     shutil.copytree(src, dst)
 
 
-def prune_stale(dest: Path, keep_paths: set):
+# ---------------------------------------------------------------------------
+# host 工具（[tools] 段）
+# ---------------------------------------------------------------------------
+
+TOOLS_README = """\
+# tools/ —— 工程自带 host 工具（由 sdk-pull.py 生成，请勿手工修改）
+
+本目录是从 mysdk-stm32 按 `User/sdk.toml` 的 `[tools]` 拉下来的工具子集，
+统一经工程根 `sdk_run.py` 调用（`.vscode/tasks.json` 只认 `sdk_run.py <子命令>`）。
+
+**这批文件随工程提交进版本库**：拿到工程的人即使没有 SDK 检出，也能直接烧录 / 发 OTA /
+做行尾体检。`sdk_run.py` 的查找顺序是「本目录 → 工程根 tools/ → SDK/tools」，
+所以本地副本优先级最高，行为由工程锁定。
+
+| 工具 | 子命令 | 作用 |
+|---|---|---|
+{rows}
+
+SDK 版本：{sdk_version}　拉取时间：{pulled_at}
+"""
+
+TOOLS_STAMP = """\
+此目录由 mysdk-stm32/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。
+本目录随工程一并提交进版本库（不要 gitignore）：拿到工程的人没有 SDK 也能用这些工具。
+SDK 版本 : {sdk_version}
+拉取时间 : {pulled_at}
+工具清单 : {tools}
+"""
+
+RESERVED_TOOLS = {"readme.md", "_tools_sync.txt"}
+
+
+def resolve_tools_dir(dest: Path, cfg: dict) -> Path:
+    """工具落点：tools_dir 相对 dest 解析（默认 <dest>/tools；可写 "../tools" 落到工程根）。"""
+    raw = str(cfg.get("tools_dir") or "tools").strip()
+    p = Path(raw)
+    return p if p.is_absolute() else (dest / p)
+
+
+def selected_tools(cfg: dict):
+    """返回 (是否配置了 [tools] 段, 选中的工具 id 列表)。"""
+    table = cfg.get("tools")
+    if table is None:
+        return False, []
+    return True, [k for k, v in table.items() if v]
+
+
+def mirror_tools(sdk_root: Path, manifest: dict, cfg: dict, dest: Path, dry: bool) -> list:
+    """按 [tools] 镜像 host 工具到 <dest>/<tools_dir>/，返回实际落地的工具 id 列表。"""
+    configured, selected = selected_tools(cfg)
+    if not configured:
+        print("  [skip] sdk.toml 未配置 [tools] 段，不拉取 host 工具")
+        return []
+
+    all_tools = manifest.get("tools", [])
+    by_id = {t["id"]: t for t in all_tools}
+    unknown = [k for k in selected if k not in by_id]
+    if unknown:
+        sys.exit(
+            f"sdk.toml [tools] 引用了 manifest 中不存在的工具: {unknown}\n"
+            f"        可用: {sorted(by_id)}"
+        )
+    if not selected:
+        print("  [skip] [tools] 未选中任何工具")
+        return []
+
+    tdir = resolve_tools_dir(dest, cfg)
+    stamp_time = f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}"
+    sdk_version = manifest["sdk"]["version"]
+
+    if dry:
+        for tid in selected:
+            print(f"  [dry] tool {tid:24s} -> {tdir / by_id[tid]['file']}")
+        return selected
+
+    tdir.mkdir(parents=True, exist_ok=True)
+
+    # 落盘：逐文件覆盖。工具均为单文件脚本，无子目录载荷。
+    landed = []
+    for tid in selected:
+        t = by_id[tid]
+        src = sdk_root / "tools" / t["file"]
+        if not src.is_file():
+            sys.exit(f"工具文件缺失: {src}")
+        shutil.copy2(src, tdir / t["file"])
+        landed.append(tid)
+        print(f"  [ok] tool {tid:24s} -> {t['file']}")
+
+    # 清理：只删「manifest 登记过、本次没选」的旧工具，不碰工程自己的文件
+    managed = {t["file"]: t["id"] for t in all_tools}
+    keep = {by_id[tid]["file"] for tid in selected} | RESERVED_TOOLS
+    for f in sorted(p for p in tdir.iterdir() if p.is_file()):
+        if f.name in keep:
+            continue
+        if f.name in managed:
+            try:
+                f.unlink()
+                print(f"  [del] 移除不再选择的工具: {managed[f.name]}")
+            except OSError as e:
+                print(f"  [warn] 工具删除失败（被占用）: {f} <- {e}")
+        else:
+            print(f"  [keep] 目录内非托管文件，不动: {f.name}")
+
+    # 自解释文件：无 SDK 的人也能看懂每个工具干什么、怎么调
+    rows = "\n".join(
+        f"| `{t['file']}` | `{t.get('via', '-')}` | {t.get('description', '')} |"
+        for t in (by_id[tid] for tid in sorted(landed))
+    )
+    (tdir / "readme.md").write_text(
+        TOOLS_README.format(rows=rows, sdk_version=sdk_version, pulled_at=stamp_time),
+        encoding="utf-8", newline="\n",
+    )
+    (tdir / "_tools_sync.txt").write_text(
+        TOOLS_STAMP.format(sdk_version=sdk_version, pulled_at=stamp_time, tools=", ".join(landed)),
+        encoding="utf-8", newline="\n",
+    )
+    return landed
+
+
+def prune_stale(dest: Path, keep_paths: set, skip_top: set = frozenset()):
     """删掉 dest 下不属于本次闭包的模块目录（曾选过、后取消的模块）。
 
     与「先删整个 dest」等价，但失败只告警不中断：单个目录被占用不会毁掉整次拉取。
+    skip_top 里的顶层目录（如工具落点）不参与模块清理，避免把工具当孤儿删掉。
     """
     for layer in sorted(p for p in dest.iterdir() if p.is_dir()):
+        if layer.name in skip_top:
+            continue
         for mod_dir in sorted(p for p in layer.iterdir() if p.is_dir()):
             rel = f"{layer.name}/{mod_dir.name}"
             if rel not in keep_paths:
                 if rmtree_robust(mod_dir):
                     print(f"  [del] 移除不再选择的模块: {rel}")
+
+
+def top_level_name_inside(base: Path, target: Path):
+    """target 落在 base 子树内时返回其顶层目录名（用于 prune 豁免），否则 None。"""
+    try:
+        rel = target.resolve().relative_to(base.resolve())
+    except (ValueError, OSError):
+        return None
+    return rel.parts[0] if rel.parts else None
 
 
 BOARD_CFG_TEMPLATE = """\
@@ -206,6 +345,8 @@ def main():
     ap.add_argument("toml", help="工程 sdk.toml 路径")
     ap.add_argument("--sdk", help="覆盖 toml 中的 SDK 根目录")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--only", choices=("all", "lib", "tools"), default="all",
+                    help="只拉库子集 / 只同步工具（tools 可在不重拉库的情况下刷新工具）")
     args = ap.parse_args()
 
     toml_path = Path(args.toml).resolve()
@@ -231,80 +372,99 @@ def main():
     board_cfg = project_root / cfg.get("board_cfg", "board_cfg.h")
 
     selected = [k for k, v in cfg.get("modules", {}).items() if v]
-    if not selected:
+    do_lib = args.only in ("all", "lib")
+    do_tools = args.only in ("all", "tools")
+    if do_lib and not selected:
         sys.exit("sdk.toml 未选择任何模块（[modules] 段为空）")
 
     manifest = load_manifest(sdk_root)
-    closure = resolve_closure(manifest, selected)
+    closure = resolve_closure(manifest, selected) if do_lib else []
 
     print(f"SDK      : {sdk_root}  (v{manifest['sdk']['version']})")
     print(f"工程     : {project_root}")
     print(f"目标     : {dest}")
-    print(f"选中 {len(selected)} 个模块，闭包 {len(closure)} 个：")
-    for mid in closure:
-        print(f"  - {mid}")
+    if do_lib:
+        print(f"选中 {len(selected)} 个模块，闭包 {len(closure)} 个：")
+        for mid in closure:
+            print(f"  - {mid}")
 
     if args.dry_run:
         print("[dry-run] 不做任何写操作")
         for m in manifest["modules"]:
             if m["id"] in closure:
                 mirror_module(sdk_root, m, dest, dry=True)
+        mirror_tools(sdk_root, manifest, cfg, dest, dry=True) if do_tools else None
         return
 
     # 镜像同步：覆盖式拷贝闭包，再清理不再选择的模块（保证 SDK 单源真相）
     # 注：不再「先删整个 dest」——云端盘/索引器瞬时占用会让整次拉取失败；
     #     改为逐模块覆盖 + 收尾清理孤儿，局部被占用只告警不中断。
-    dest.mkdir(parents=True, exist_ok=True)
+    if do_lib:
+        dest.mkdir(parents=True, exist_ok=True)
 
-    keep_paths = set()
-    for m in manifest["modules"]:
-        if m["id"] in closure:
-            keep_paths.add(m["path"])
-            mirror_module(sdk_root, m, dest, dry=False)
-            print(f"  [ok] {m['id']}")
+        keep_paths = set()
+        for m in manifest["modules"]:
+            if m["id"] in closure:
+                keep_paths.add(m["path"])
+                mirror_module(sdk_root, m, dest, dry=False)
+                print(f"  [ok] {m['id']}")
 
-    prune_stale(dest, keep_paths)
+        # 工具落点若在 dest 内，必须豁免，别被当孤儿模块删掉
+        tools_dir = resolve_tools_dir(dest, cfg)
+        skip_top = {n for n in (top_level_name_inside(dest, tools_dir),) if n}
+        prune_stale(dest, keep_paths, skip_top)
 
-    # SDK 组件构建脚本（随拉取更新，工程侧不维护）
-    # 载荷根的组件构建脚本：与各 layer 目录同级，故在 <SDK>/library/ 下
-    sdk_cmakelists = sdk_root / "library" / "CMakeLists.txt"
-    if sdk_cmakelists.is_file():
-        shutil.copy2(sdk_cmakelists, dest / "CMakeLists.txt")
-        print(f"  [ok] library/CMakeLists.txt -> {dest / 'CMakeLists.txt'}")
-    else:
-        print("  [warn] SDK 缺少 library/CMakeLists.txt，工程需自行接入源文件")
+        # SDK 组件构建脚本（随拉取更新，工程侧不维护）
+        # 载荷根的组件构建脚本：与各 layer 目录同级，故在 <SDK>/library/ 下
+        sdk_cmakelists = sdk_root / "library" / "CMakeLists.txt"
+        if sdk_cmakelists.is_file():
+            shutil.copy2(sdk_cmakelists, dest / "CMakeLists.txt")
+            print(f"  [ok] library/CMakeLists.txt -> {dest / 'CMakeLists.txt'}")
+        else:
+            print("  [warn] SDK 缺少 library/CMakeLists.txt，工程需自行接入源文件")
 
-    # board_cfg 模板（不覆盖已有——绑定是工程资产）
-    # 注意：云端盘（如 Google Drive 在线-only 占位）下 os.path.exists 可能误报
-    # 不存在，导致已填好的绑定被模板覆盖。故先用 try 打开并读取 1 字节确认，
-    # 触发云端下载；非空即视为已存在，保留工程资产。
-    _board_cfg_present = False
-    try:
-        with open(board_cfg, "rb") as _f:
-            if _f.read(1):
-                _board_cfg_present = True
-    except OSError:
+    # host 工具（工程自带后，sdk_run.py 不再依赖 SDK 检出即可 Flash / OTA）
+    landed_tools = mirror_tools(sdk_root, manifest, cfg, dest, dry=False) if do_tools else []
+    tools_dir = resolve_tools_dir(dest, cfg)
+
+    if do_lib:
+        # board_cfg 模板（不覆盖已有——绑定是工程资产）
+        # 注意：云端盘（如 Google Drive 在线-only 占位）下 os.path.exists 可能误报
+        # 不存在，导致已填好的绑定被模板覆盖。故先用 try 打开并读取 1 字节确认，
+        # 触发云端下载；非空即视为已存在，保留工程资产。
         _board_cfg_present = False
-    if _board_cfg_present:
-        print(f"  [keep] board_cfg 已存在，不覆盖: {board_cfg}")
-    else:
-        board_cfg.parent.mkdir(parents=True, exist_ok=True)
-        board_cfg.write_text(BOARD_CFG_TEMPLATE, encoding="utf-8")
-        print(f"  [new] board_cfg 模板已生成: {board_cfg}（需填写绑定后使用）")
+        try:
+            with open(board_cfg, "rb") as _f:
+                if _f.read(1):
+                    _board_cfg_present = True
+        except OSError:
+            _board_cfg_present = False
+        if _board_cfg_present:
+            print(f"  [keep] board_cfg 已存在，不覆盖: {board_cfg}")
+        else:
+            board_cfg.parent.mkdir(parents=True, exist_ok=True)
+            board_cfg.write_text(BOARD_CFG_TEMPLATE, encoding="utf-8")
+            print(f"  [new] board_cfg 模板已生成: {board_cfg}（需填写绑定后使用）")
 
-    # 同步戳
-    stamp = dest / "_sdk_sync.txt"
-    stamp.write_text(
-        "此目录由 mysdk-stm32/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
-        "本目录随工程一并提交进版本库（不要 gitignore）：对拿到工程的人它就是源码的一部分。\n"
-        f"SDK 版本 : {manifest['sdk']['version']}\n"
-        f"拉取时间 : {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
-        f"模块清单 : {', '.join(closure)}\n",
-        encoding="utf-8",
-    )
-    print(f"  [ok] 戳: {stamp}")
+        # 同步戳
+        stamp = dest / "_sdk_sync.txt"
+        stamp.write_text(
+            "此目录由 mysdk-stm32/tools/sdk-pull.py 生成，请勿手工修改（会被下次拉取覆盖）。\n"
+            "本目录随工程一并提交进版本库（不要 gitignore）：对拿到工程的人它就是源码的一部分。\n"
+            f"SDK 版本 : {manifest['sdk']['version']}\n"
+            f"拉取时间 : {datetime.datetime.now():%Y-%m-%d %H:%M:%S}\n"
+            f"模块清单 : {', '.join(closure)}\n"
+            f"工具清单 : {', '.join(landed_tools) if landed_tools else '(本次未同步)'}\n"
+            f"工具落点 : {tools_dir}\n",
+            encoding="utf-8",
+        )
+        print(f"  [ok] 戳: {stamp}")
+
     print("完成。")
-    print(f"提示: {dest.name}/ 需随工程提交（不 gitignore），请检查 git status 后一并 commit。")
+    if do_lib:
+        print(f"提示: {dest.name}/ 需随工程提交（不 gitignore），请检查 git status 后一并 commit。")
+    if landed_tools:
+        print(f"提示: 工具已落到 {tools_dir}，同样入库；之后离线（无 SDK）也能 Flash / OTA。")
 
 
 if __name__ == "__main__":

@@ -9,13 +9,13 @@
   - 协议封装 / 可复用算法 —— `library/protocols/`
   - 系统服务（固件生命周期、升级等） —— `library/services/`
   - 第三方中间件 —— `library/middleware/`
-- `tools/` —— 跑在开发 PC 上的工具（**单源、只调用不拉取**）：`sdk-pull.py` / `sdk-check-oop.py` / `check-eol.py`（SDK 维护）、`fw-flash.py` / `format-gbk2utf8.py` / `fw-ota-ymodem.py`（工程面向）。
+- `tools/` —— 跑在开发 PC 上的工具（**单源**，其中 `audience: project` 的可按 `sdk.toml` 的 `[tools]` 拉进工程）：`sdk-pull.py` / `_fw_ota_ymodem_loopback_test.py`（SDK 维护）、`fw-flash.py` / `fw-ota-ymodem.py` / `format-*.py` / `check-eol.py` / `sdk-check-oop.py`（工程面向）。
 - `manual/` —— 手动拷贝到工程的脚手架（`sdk_run.py` 桥接 + `.vscode` 接口模板 + `User/` 配置模板），**不自动拉取**。
 
 ## 版本
 
-- SDK 版本：**0.12.0**（2026-09-20）
-- Manifest schema：**1.0**（`sdk_manifest.json`）
+- SDK 版本：**0.13.0**（2026-11-17）
+- Manifest schema：**1.1**（`sdk_manifest.json`，新增 `tools` 段）
 - 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
 ## 目录结构
@@ -33,10 +33,10 @@ mysdk-stm32/
 │   │   ├── ota_core/ ota_src_mem/ bootloader/ ota/ ota_src_uart/
 │   └── middleware/   # 第三方调试/传输库
 │       ├── cJSON/ SEGGER_RTT/
-├── tools/            # 全部 host 工具（单源，只调用不拉取）
-│   ├── sdk-pull.py   # 子集拉取（SDK 维护）
-│   ├── sdk-check-oop.py  # HAL 泄漏检查（SDK 维护）
-│   ├── check-eol.py      # 行尾体检：CR 加倍 / 孤立 CR（SDK 维护；已并入 audit）
+├── tools/            # host 工具（单源；project 类可按 [tools] 拉进工程）
+│   ├── sdk-pull.py   # 子集拉取：库闭包 + 选中的 host 工具（SDK 维护）
+│   ├── sdk-check-oop.py  # HAL 泄漏检查（工程面向；支持 --root 审镜像）
+│   ├── check-eol.py      # 行尾体检：CR 加倍 / 孤立 CR（工程面向；已并入 audit）
 │   ├── fw-ota-pack.py   # OTA 固件打包 bin -> .otapkg（工程面向；经 sdk_run.py pack 调用）
 │   ├── fw-flash.py      # J-Link 烧录（工程面向；自检 J-Link 路径/器件名并回写 settings.json 供 debug 用）
 │   └── format-gbk2utf8.py  # GBK→UTF-8（工程面向）
@@ -55,7 +55,7 @@ mysdk-stm32/
 - **`services/` 的判据**：不是协议、也不是某颗芯片，而是「跨项目的系统级流程」。放进来的是 OTA / bootloader 这类**固件生命周期**服务；塞不进原来四层、又想复用，才开这一层，别把随便什么工具函数都塞进去。
 - **HAL 保留**：CubeMX 生成的 HAL 仍是 vendor 底层，OOP 封装包在它上面；明确否决「全去 HAL 自写」。
 - **HAL 泄漏红线**：`tools/sdk-check-oop.py` 扫 `library/{chip,devices,protocols,services}`。**只有 `chip/` 允许直接调用 `HAL_*` 函数或定义 `HAL_*Callback`**；其余四层一律只调 `oop_*`。跑 `--strict` 必须过。
-- **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sdk-pull.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。
+- **单源真相**：本仓库是本地共享 SDK（镜像 Zephyr 的 `zephyrproject`），bug 改一处。项目通过 `sdk-pull.py` 拷贝选中子集进 `MySDK/`，不引用本仓库路径。host 工具同理：源在本仓库，按 `[tools]` 拉一份镜像进工程（工程侧先吃本地副本），**SDK 不在手上也能烧录**。
 - **`MySDK/` 必须进工程版本库**（不 gitignore）：虽然它由 sync 生成，但对拿到工程的人它就是源码的一部分——缺了不知道少什么、也无法直接编译。定位同 CubeMX 生成的 HAL 库与初始化代码，一律入库。
 - **版本号规则**：SDK 顶层用语义化版本（如 `0.1.0`）；模块 `version` 沿用源码 `@version` 标注（Vx.y 或第三方原生版本），无标注者记为 null。
 - **行尾约定（改既有文件时必须守）**：要么**字节进出**（`open(p,"rb")` 读 → `open(p,"wb")` 写），要么读写都显式 `newline=""`。**禁止「保留换行地读 + 默认模式写」**——Python 写时会把 `\n` 再翻成 `os.linesep`，于是每编辑一次行尾就多一个 CR（`\n` → `\r\r\n` → `\r\r\r\n`）：编辑器里每行看着像多一个空行，且该文件会被 git 判为 `i/-text`（不参与行尾归一化），**脏字节直接进仓库**。回归检查：`python tools/check-eol.py`（已并入 `sdk_run.py audit`）。
@@ -76,19 +76,31 @@ SDK 是单源真相仓库。通过 `tools/sdk-pull.py` 按 `sdk.toml` 选模块�
 sdk       = "<SDK 仓库绝对路径>"   # SDK 绝对路径（无连字符）；省略时 sdk-pull.py 自动定位仓库
 dest      = "MySDK"                  # 镜像目标（相对 toml 所在目录解析）
 board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖）
+tools_dir = "tools"                 # host 工具落点（相对 dest；默认 tools → MySDK/tools）
 
 [modules]                              # 只列叶子模块，depends 闭包自动补全
 "chip.oop_dwt"   = true
 "devices.ir_transmitter"  = true
 # ...
+
+[tools]                                # host 工具选择；缺该段则不拉工具（老工程行为不变）
+"fw-flash"       = true
+"fw-ota-ymodem"  = true
+"check-eol"      = true
+"sdk-check-oop"  = true
 ```
 
 | 字段 | 含义 | 备注 |
 |---|---|---|
-| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mysdk-stm32`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库 |
+| `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mysdk-stm32`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库。**只有 `pull` 强依赖它**，其余任务在工具已拉进工程时可无 SDK 运行 |
 | `dest` | 镜像目标目录 | 相对 toml 所在目录；根 CMakeLists 的 `add_subdirectory` 名必须与之一致 |
 | `board_cfg` | 绑定文件路径 | 仅首次生成模板；之后保留工程资产，不被覆盖 |
+| `tools_dir` | host 工具落点 | 相对 `dest`；默认 `tools`（即 `MySDK/tools`）。想放工程根写 `"../tools"` |
 | `[modules]` | 模块选择 | 写 `= true` 的模块，其 `depends` 由脚本递归补全；`external:*` 依赖跳过、由工程侧提供 |
+| `[tools]` | 工具选择 | 写 `= true` 的 id 从 `tools/` 镜像到 `<dest>/<tools_dir>`；`audience: maintainer` 的项没必要拉。id 写错直接报错并列出可用项 |
+
+> 工具拉进工程后 `sdk_run.py` 优先用它（顺序：`<dest>/<tools_dir>` → 工程根 `tools/` → `<sdk>/tools`），
+> 所以 **SDK 目录搬走/删掉，Flash / YMODEM / audit 仍然可用**。自查：`python sdk_run.py tools`。
 
 `board_cfg.h` 是唯一绑定点：全工程唯一允许 `#include "main.h"/"tim.h"/"usart.h"`
 并引用 CubeMX 全局句柄（`&htim6`、`&hiwdg`、引脚宏）的地方。SDK 内部零绑定、板无关。
@@ -123,6 +135,9 @@ python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml
 python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --dry-run
 # 覆盖 toml 里的 sdk 路径
 python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --sdk <其他 SDK 根>
+# 只刷新工具（不重拉库）/ 只重拉库（不动工具）
+python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --only tools
+python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --only lib
 ```
 
 拉取行为：
@@ -130,8 +145,11 @@ python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --sdk <其他 SDK �
 2. **先 `rmtree(dest)` 再整目录镜像** `library/<layer>/<module>/` → `dest/<layer>/<module>/`
    （手动改 `MySDK/` 会被清空，要改只能改 SDK 源仓后重新拉取）。
 3. 拷贝 SDK 载荷根 `library/CMakeLists.txt` → `dest/CMakeLists.txt`（组件构建脚本）；它就在各 layer 目录同级，故源仓内也能直接配置。
-4. `board_cfg.h` 仅在「读取 1 字节确认不存在」时生成模板（避免云端盘在线占位误覆盖）。
-5. 写 `dest/_sdk_sync.txt` 戳（SDK 版本 / 时间 / 模块清单）。
+4. 按 `[tools]` 把选中的 host 工具镜像到 `<dest>/<tools_dir>/`，并在该目录生成 `readme.md`（工具清单/子命令）
+   与 `_tools_sync.txt`（版本戳）；取消勾选的工具会被删掉，**非托管文件一律不动**。
+   工具落点若在 `dest` 内，孤儿清理会自动豁免它，不会被当模块删掉。
+5. `board_cfg.h` 仅在「读取 1 字节确认不存在」时生成模板（避免云端盘在线占位误覆盖）。
+6. 写 `dest/_sdk_sync.txt` 戳（SDK 版本 / 时间 / 模块清单 / 工具清单 / 工具落点）。
 
 ### 3. 接入编译
 
@@ -277,6 +295,28 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+### host 工具改为「按配置拉取」（2026-11-17，v0.13.0）
+
+之前工具只能从唯一 SDK 检出里调：`sdk.toml` 的 `sdk` 一失效（目录搬家、删库、换机器），
+工程里的 Flash / YMODEM / audit 全部变砖，而这几个工具本身**零 SDK 依赖**。
+
+- **manifest 新增 `tools` 段**（schema 1.0 → 1.1）：`id` / `file` / `audience`（`project` | `maintainer`）/
+  `via`（对应 `sdk_run.py` 子命令）/ `description`。共 10 项：8 项 `project`（fw-flash、fw-ota-ymodem、
+  fw-ota-pack、format-gbk2utf8、format-utf16be2utf8、gen-cmake-paths、check-eol、sdk-check-oop）、
+  2 项 `maintainer`（sdk-pull、YMODEM 回环单测）。
+- **`sdk.toml` 新增 `[tools]` 与 `tools_dir`**：`tools_dir` 相对 `dest`（默认 `tools` → `MySDK/tools`），
+  可写 `"../tools"` 落到工程根；缺 `[tools]` 段则不拉工具（老工程行为不变）。
+- **`sdk-pull.py`**：镜像工具 → `<dest>/<tools_dir>/`，生成 `readme.md`（工具清单/子命令）与
+  `_tools_sync.txt`；取消勾选的工具会删除，目录内非托管文件不动；工具落点在 `dest` 内时，
+  孤儿模块清理自动豁免它。新增 `--only lib|tools`（`tools` 可在不重拉库的情况下单独刷新工具）。
+- **`manual/sdk_run.py`**：工具源解析改为「`<dest>/<tools_dir>` → 工程根 `tools/` → `<sdk>/tools`」，
+  **只有 `pull` 强依赖 SDK**（它要读 manifest 与 `library/`）；`sdk` 路径失效不再启动即退出。
+  新增 `tools` 子命令：打印 SDK 是否有效、本地是否已拉取、每个工具当前从哪来。
+- **`sdk-check-oop.py`**：新增 `--root` 与布局自适应（SDK 源仓 `library/<layer>` / 工程镜像 `<layer>` 直挂），
+  扫不到任何层目录时**报错退出（rc=2）而不是静默 OK**——防「扫错地方也全过」。
+- `audit` 随之改：有 SDK 审 SDK 源仓，没有就审工程 `MySDK/`；两个工具都缺时 rc=2，不再假成功。
+- 工程侧 `tasks.json` **一字未改**（仍只认 `sdk_run.py <子命令>`）。
+
 ### RTOS 开关收敛到 `board_cfg.h` + middleware / 协议层彻底不碰 HAL 与 RTOS（2026-09-20，v0.12.0）
 
 背景：`middleware/SEGGER_RTT/Inc/SEGGER_RTT_Log.h` 的裸机分支直调 `HAL_GetTick()` 并 include `hal_platform.h`，

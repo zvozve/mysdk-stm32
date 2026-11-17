@@ -18,6 +18,10 @@ sdk-check-oop.py — mysdk-stm32 HAL 泄漏检查器
 用法：
     python tools/sdk-check-oop.py            # 扫描 library/chip library/devices library/protocols
     python tools/sdk-check-oop.py --strict   # 非零退出码以便接入 CI
+    python tools/sdk-check-oop.py --root <工程>/MySDK
+                                             # 审 sdk-pull 镜像（<layer> 直挂布局，自动识别）
+    python tools/sdk-check-oop.py --root <dir> library|mirror
+                                             # 布局识别有歧义时显式指定
 
 第三方中间件（library/middleware/、library/protocols/cJSON）为 vendor 代码，跳过不查。
 """
@@ -29,7 +33,21 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 扫描范围（跳过第三方中间件与 cJSON）
 # services/ 是系统服务层（bootloader / ota 等），与 devices/protocols 同样禁止直调 HAL
-SCAN_DIRS = ["library/chip", "library/devices", "library/protocols", "library/services"]
+LAYERS = ["chip", "devices", "protocols", "services"]
+DEFAULT_LAYOUT = "library"     # SDK 源仓布局：library/<layer>
+MIRROR_LAYOUT = "mirror"       # sdk-pull 镜像布局：<layer> 直挂（工程 MySDK/）
+
+
+def scan_dirs(root: str, layout: str = "") -> list:
+    """按布局给出待扫目录。layout 为空时按 root 内容自适应。
+
+    SDK 源仓       : <root>/library/{chip,devices,protocols,services}
+    工程镜像 MySDK : <root>/{chip,devices,protocols,services}
+    """
+    if not layout:
+        layout = DEFAULT_LAYOUT if os.path.isdir(os.path.join(root, "library")) else MIRROR_LAYOUT
+    prefix = "library" if layout == DEFAULT_LAYOUT else ""
+    return [os.path.join(prefix, d) if prefix else d for d in LAYERS]
 
 # 1) 禁止包含的 CubeMX 工程生成头
 FORBIDDEN_INCLUDES = [
@@ -106,26 +124,51 @@ def scan_file(path, allow_hal=False):
 
 
 def main():
-    strict = "--strict" in sys.argv[1:]
+    args = sys.argv[1:]
+    strict = "--strict" in args
+    root = ROOT
+    layout = ""
+    for i, a in enumerate(args):
+        if a == "--root" and i + 1 < len(args):
+            root = os.path.abspath(args[i + 1])
+        elif a.startswith("--root="):
+            root = os.path.abspath(a.split("=", 1)[1])
+        elif a in (DEFAULT_LAYOUT, MIRROR_LAYOUT):
+            layout = a
+
+    if not os.path.isdir(root):
+        print("[ERR] 根目录不存在: %s" % root)
+        return 2
+
+    dirs = scan_dirs(root, layout)
+    if not any(os.path.isdir(os.path.join(root, d)) for d in dirs):
+        # 静默全过是最坏结果：宁可报错，让人知道扫错了地方
+        print("[ERR] 在 %s 下未找到任何待扫层目录（尝试过: %s）" % (root, ", ".join(dirs)))
+        return 2
+
+    effective = layout or (DEFAULT_LAYOUT if os.path.isdir(os.path.join(root, "library")) else MIRROR_LAYOUT)
+    print("[sdk-check-oop] 根目录: %s（%s 布局）" % (root, effective))
+
     total = 0
     # 仅 chip/ 层允许直接调用 HAL；devices/ / protocols/ / services/ 一律禁止直调 HAL_*
-    for d in SCAN_DIRS:
-        base = os.path.join(ROOT, d)
+    for d in dirs:
+        base = os.path.join(root, d)
         if not os.path.isdir(base):
             continue
-        allow_hal = d.endswith("/chip")
-        for root, _dirs, files in os.walk(base):
+        allow_hal = d.replace("\\", "/").endswith("/chip") or d == "chip"
+        for cur, _dirs, files in os.walk(base):
+            rel_dir = os.path.relpath(cur, root).replace("\\", "/")
             # 跳过第三方
-            if "middleware" in root.replace(ROOT, ""):
+            if "middleware" in rel_dir:
                 continue
             for fn in files:
                 if not fn.endswith((".c", ".h")):
                     continue
-                if os.path.join(root, fn).replace(ROOT, "").replace("\\", "/").startswith("/library/protocols/cJSON"):
+                rel = os.path.join(rel_dir, fn).replace("\\", "/")
+                if "protocols/cJSON" in rel:
                     continue
-                hits = scan_file(os.path.join(root, fn), allow_hal)
+                hits = scan_file(os.path.join(cur, fn), allow_hal)
                 if hits:
-                    rel = os.path.relpath(os.path.join(root, fn), ROOT)
                     print("[LEAK] %s" % rel)
                     for i, text, why in hits:
                         print("    L%-4d %-38s %s" % (i, text[:60], why))

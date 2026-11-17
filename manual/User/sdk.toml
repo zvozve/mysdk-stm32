@@ -1,15 +1,15 @@
 # SDK 拉取配置模板（从 SDK manual/User/sdk.toml 拷贝到工程 User/sdk.toml 后填写）
 # 用法: python <SDK_ROOT>/tools/sdk-pull.py User/sdk.toml
 #
-# 本文件与 board_cfg.h 同置于工程 User/（均为工程侧资产，sync 不会覆盖）。
+# 本文件与 board_cfg.h 同置于工程 User/（均为工程侧资产，pull 不会覆盖）。
 # sdk-pull.py 把 dest / board_cfg 均解析为「相对本文件所在目录(User/)」，
 # 因此要落到工程根需上跳一级(../MySDK)， board_cfg 直接写文件名(在 User/ 内)。
 # 仅 sdk 一项需要填真实路径；换 SDK 目录改这一行即可，其余不变。
-# C:\Container\Library\STM32-SDK\mysdk-stm32
 
 sdk       = "<SDK_ROOT>"          # mysdk-stm32 仓库绝对路径（必填）
 dest      = "../MySDK"            # 拉取目标（相对 User/，故上跳一级落到工程根；根 CMakeLists 以 MySDK 同名 add_subdirectory）
 board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User/board_cfg.h；已存在则不覆盖）
+tools_dir = "tools"              # host 工具落点（相对 dest）→ MySDK/tools；想放工程根写 "../tools"
 
 [modules]
 # ---- chip：MCU 片上外设 OOP 封装 ----
@@ -45,3 +45,15 @@ board_cfg = "board_cfg.h"         # 硬件绑定文件（相对 User/，即 User
 "services.ota"         = true   # APP 外壳：早期 VTOR / 下载 / 确认（仅 APP 工程选）
 "services.bootloader"   = true   # BL 外壳：读状态 → 生效 → 试运行/回滚 → 跳转（仅 BL 工程选）
 "services.ota_src_uart" = true  # 取数后端：串口 YMODEM（需 protocols.ymodem + chip.oop_uart）
+
+[tools]
+# host 工具按配置拉取到 <dest>/tools（写不存在的 id 会直接报错并列出可用项）。
+# 拉进工程后这些脚本随工程入库：SDK 目录搬走/删掉也能 Flash、发 OTA、做行尾体检。
+"fw-flash"              = true   # flash：J-Link 烧录（自检路径/器件名，回写 settings.json）
+"fw-ota-ymodem"         = true   # ymodem：发 raw .bin 给设备（设备侧自动选非运行槽）
+"fw-ota-pack"           = true   # pack：bin -> .otapkg（raw-bin 流程下一般不用）
+"format-gbk2utf8"       = true   # trans：GBK 源码转 UTF-8
+"format-utf16be2utf8"   = true   # trans16：UTF-16 / BOM 归一化为 UTF-8
+"gen-cmake-paths"       = true   # gencmake：扫描目录生成 CMake 源/包含路径片段
+"check-eol"             = true   # audit 之一：行尾体检（CR 加倍/孤立 CR）
+"sdk-check-oop"         = true   # audit 之一：HAL 泄漏红线（无 SDK 时审工程 MySDK/）
