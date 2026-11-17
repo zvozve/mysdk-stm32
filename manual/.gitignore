@@ -66,6 +66,8 @@ compile_commands.json
 # ── 禁止忽略：以下各项必须入库 ────────────────────────────────────────
 #   MySDK/            SDK 拉取镜像。虽是 sync 生成的，但没有它别人 clone 后直接编译不过，
 #                     定位等同 CubeMX 生成的 HAL 库与初始化代码；每次 sync 后要 git add。
+#                     内部约定：MySDK/library/（固件源码子集，add_subdirectory 的目标）
+#                              MySDK/tools/  （host 工具子集）
 #   MySDK/tools/      拉进工程的 host 工具（tools_dir 若改到 ../tools 则那一份）。它们随固件版本
 #                     一起锁定，SDK 搬走后 Flash / YMODEM / audit 仍可用；被 ignore 等于换机器即失效。
 #                     注意：别用 `*.py` 这种宽规则，会把 sdk_run.py 和这批工具一起挡掉。

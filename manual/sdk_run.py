@@ -143,7 +143,7 @@ def cmd_tools(cfg: dict) -> int:
     tool_dir, tag = resolve_tools(cfg)
     print("[tools] 配置     : %s" % TOML)
     print("[tools] SDK 检出 : %s" % (sdk or "无效/未配置（只能用工程内工具）"))
-    print("[tools] 拉取目标 : %s" % dest_dir(cfg))
+    print("[tools] 库落点   : %s%s" % (dest_dir(cfg), "" if os.path.isdir(dest_dir(cfg)) else "  (未拉取)"))
     print("[tools] 本地工具 : %s%s" % (local, "" if _has_py(local) else "  (未拉取)"))
     print("[tools] 实际使用 : %s（%s）" % (tool_dir or "无", tag or "-"))
 
@@ -250,4 +250,11 @@ def main() -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    try:
+        sys.exit(main())
+    except BrokenPipeError:          # 管道被下游关闭（如 `| head`）
+        os._exit(0)
+    except OSError as e:             # Windows 上同一场景抛 EINVAL(22) 而非 BrokenPipeError
+        if getattr(e, "errno", None) == 22:
+            os._exit(0)
+        raise

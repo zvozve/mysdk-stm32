@@ -9,11 +9,13 @@ sdk-pull.py —— mysdk-stm32 子集拉取工具（SDK → 工程）
 
 sdk.toml 格式 (本文件随工程放在 User/ 目录，与 board_cfg.h 同处工程侧资产):
     sdk        = "<SDK 仓库绝对路径>"      # SDK 根目录；省略时 sdk-pull.py 自动以其自身所在目录定位仓库
-    dest       = "../MySDK"                # 拉取目标，相对 sdk.toml 所在目录(User/)解析；
-                                            #   上跳一级落到工程根；根 CMakeLists 以同名目录 add_subdirectory
+    dest       = "../MySDK/library"        # 库落点，相对 sdk.toml 所在目录(User/)解析；
+                                            #   推荐 <工程根>/MySDK/library —— 与 SDK 仓库的 library/ 同名，
+                                            #   工程侧 add_subdirectory(MySDK/library)
     board_cfg  = "board_cfg.h"             # 绑定文件，相对 sdk.toml 所在目录 User/ 解析；
                                             #   已存在则不覆盖（工程资产）
-    tools_dir  = "tools"                   # host 工具落点，相对 dest 解析；默认 tools，即 MySDK/tools
+    tools_dir  = "../tools"                # host 工具落点，相对 dest 解析；推荐 ../tools → MySDK/tools
+                                            #   （库与工具同级：MySDK/library + MySDK/tools）
 
     [modules]                              # 显式选择；depends 闭包自动补全
     "chip.oop_dwt"   = true
@@ -162,7 +164,7 @@ def resolve_tools_dir(dest: Path, cfg: dict) -> Path:
     """工具落点：tools_dir 相对 dest 解析（默认 <dest>/tools；可写 "../tools" 落到工程根）。"""
     raw = str(cfg.get("tools_dir") or "tools").strip()
     p = Path(raw)
-    return p if p.is_absolute() else (dest / p)
+    return Path(os.path.normpath(p if p.is_absolute() else (dest / p)))
 
 
 def selected_tools(cfg: dict):
@@ -270,6 +272,29 @@ def top_level_name_inside(base: Path, target: Path):
     return rel.parts[0] if rel.parts else None
 
 
+LEGACY_LAYERS = ("chip", "devices", "protocols", "services", "middleware")
+
+
+def warn_legacy_layout(dest: Path):
+    """dest 下沉到 <根>/library 后，上一版平铺的拉取物会留在 <根> 下。
+
+    本脚本只清理 dest 内部，不能替人删 dest 之外的东西（删错比留脏更糟），
+    所以这里只列出清单让人确认。判据：dest 名为 library/lib/sdk 且父目录里出现
+    layer 目录或载荷根 CMakeLists.txt / 戳。
+    """
+    if dest.name.lower() not in ("library", "lib", "sdk"):
+        return
+    parent = dest.parent
+    stale = [parent / n for n in LEGACY_LAYERS if (parent / n).is_dir()]
+    stale += [p for p in (parent / "CMakeLists.txt", parent / "_sdk_sync.txt") if p.is_file()]
+    if not stale:
+        return
+    print(f"  [warn] {parent} 下发现上一版「平铺」布局残留（dest 现在指到 {dest.name}/）:")
+    for p in stale:
+        print(f"           {p}")
+    print("         本脚本只清理 dest 内部，不代删这些；确认无用后手动删除并提交删除。")
+
+
 BOARD_CFG_TEMPLATE = """\
 #ifndef __BOARD_CFG_H
 #define __BOARD_CFG_H
@@ -367,7 +392,7 @@ def main():
         sys.exit(f"SDK 根目录不存在或无效（未找到 sdk_manifest.json）: {sdk_root}")
 
     project_root = toml_path.parent
-    dest = project_root / cfg.get("dest", "MySDK")
+    dest = Path(os.path.normpath(project_root / cfg.get("dest", "MySDK")))
     # project_root 就是 sdk.toml 所在目录（User/），故默认值不带 User/ 前缀
     board_cfg = project_root / cfg.get("board_cfg", "board_cfg.h")
 
@@ -383,6 +408,7 @@ def main():
     print(f"SDK      : {sdk_root}  (v{manifest['sdk']['version']})")
     print(f"工程     : {project_root}")
     print(f"目标     : {dest}")
+    warn_legacy_layout(dest)
     if do_lib:
         print(f"选中 {len(selected)} 个模块，闭包 {len(closure)} 个：")
         for mid in closure:
@@ -462,9 +488,11 @@ def main():
 
     print("完成。")
     if do_lib:
-        print(f"提示: {dest.name}/ 需随工程提交（不 gitignore），请检查 git status 后一并 commit。")
+        roots = [dest] + ([] if top_level_name_inside(dest, tools_dir) else [tools_dir])
+        print("提示: 拉取物需随工程提交（不 gitignore）：" + "、".join(str(r) for r in roots))
+        print("      请检查 git status 后一并 commit。")
     if landed_tools:
-        print(f"提示: 工具已落到 {tools_dir}，同样入库；之后离线（无 SDK）也能 Flash / OTA。")
+        print(f"提示: 工具已落到 {tools_dir}，之后离线（无 SDK）也能 Flash / OTA。")
 
 
 if __name__ == "__main__":

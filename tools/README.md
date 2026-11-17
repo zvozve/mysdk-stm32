@@ -44,9 +44,11 @@
 工程 .vscode/tasks.json
    └─> python <工程根>/sdk_run.py <flash|pull|audit|trans|trans16|gencmake|ymodem|pack|tools> ...
           └─> 读 User/sdk.toml（sdk / dest / tools_dir / [tools]）
-                ├─> 优先用 <dest>/tools 里已拉取的副本（无 SDK 也能跑）
+                ├─> 优先用 <dest>/<tools_dir> 里已拉取的副本（默认 MySDK/tools，无 SDK 也能跑）
                 └─> 缺工具时才回退到 <SDK根>/tools
 ```
+
+> 工程内布局：`MySDK/library/`（固件子集）+ `MySDK/tools/`（本目录的镜像）同级，互不干扰。
 
 `tasks.json` 与 `sdk_run.py` **都不硬编码 SDK 绝对路径/相对深度**；换 SDK 目录只需改
 `sdk.toml` 的 `sdk = "..."` 一行。自查用 `python sdk_run.py tools`：列出 SDK 路径是否有效、

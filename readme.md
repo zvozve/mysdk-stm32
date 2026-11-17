@@ -3,7 +3,7 @@
 本仓库用于存放自建 STM32 SDK。
 
 仓库分四层，职责互不混淆：
-- `library/` —— 固件源码（按 `sdk.toml` 自动拉取到工程 `MySDK/`），含：
+- `library/` —— 固件源码（按 `sdk.toml` 自动拉取到工程 `MySDK/library/`），含：
   - 片上寄存器 OOP 封装（基于 HAL） —— `library/chip/`
   - 板外设备驱动 —— `library/devices/`
   - 协议封装 / 可复用算法 —— `library/protocols/`
@@ -14,7 +14,7 @@
 
 ## 版本
 
-- SDK 版本：**0.13.0**（2026-11-17）
+- SDK 版本：**0.13.1**（2026-11-17）
 - Manifest schema：**1.1**（`sdk_manifest.json`，新增 `tools` 段）
 - 支持的 MCU 系列：STM32F1、STM32F4、STM32G4（由 `chip/platform/Inc/hal_platform.h` 按编译宏自动展开）
 
@@ -22,7 +22,7 @@
 
 ```
 mysdk-stm32/
-├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/
+├── library/          # 固件源码：按 sdk.toml 自动拉取 → 工程 MySDK/library/
 │   ├── chip/         # MCU 内部外设 OOP 封装（板无关，基于 HAL）
 │   │   ├── oop_dwt/ oop_gpio/ oop_uart/ oop_tim/ oop_iwdg/ oop_spi/ oop_flash/ oop_boot/ platform/
 │   ├── devices/      # 板载外挂芯片驱动（坐 chip/ 总线）
@@ -63,8 +63,8 @@ mysdk-stm32/
 ## 工程接入指南
 
 SDK 是单源真相仓库。通过 `tools/sdk-pull.py` 按 `sdk.toml` 选模块，把闭包子树镜像到
-工程的 `MySDK/`，工程侧 `add_subdirectory(MySDK)` + 链接 `mysdk` 静态库即可，换板只改
-`board_cfg.h`。
+工程的 `MySDK/library/`，工程侧 `add_subdirectory(MySDK/library)` + 链接 `mysdk` 静态库即可，
+换板只改 `board_cfg.h`。`MySDK/tools/` 放拉进来的 host 工具，与固件源码同级但互不干扰。
 
 > **`MySDK/` 必须提交进工程版本库**——详见下方「5. 注意事项 / 坑」。
 
@@ -74,9 +74,9 @@ SDK 是单源真相仓库。通过 `tools/sdk-pull.py` 按 `sdk.toml` 选模块�
 
 ```toml
 sdk       = "<SDK 仓库绝对路径>"   # SDK 绝对路径（无连字符）；省略时 sdk-pull.py 自动定位仓库
-dest      = "MySDK"                  # 镜像目标（相对 toml 所在目录解析）
+dest      = "MySDK/library"          # 库落点（相对 toml 所在目录解析）
 board_cfg = "User/board_cfg.h"      # 硬件绑定文件（已存在绝不覆盖）
-tools_dir = "tools"                 # host 工具落点（相对 dest；默认 tools → MySDK/tools）
+tools_dir = "../tools"              # host 工具落点（相对 dest）→ MySDK/tools，与 library 同级
 
 [modules]                              # 只列叶子模块，depends 闭包自动补全
 "chip.oop_dwt"   = true
@@ -95,7 +95,7 @@ tools_dir = "tools"                 # host 工具落点（相对 dest；默认 t
 | `sdk` | SDK 根目录（绝对路径） | 路径必须为 `mysdk-stm32`（无连字符），写成 `my-stm32-sdk` 会报「根目录不存在」；省略时 sdk-pull.py 自动以其自身所在目录定位仓库。**只有 `pull` 强依赖它**，其余任务在工具已拉进工程时可无 SDK 运行 |
 | `dest` | 镜像目标目录 | 相对 toml 所在目录；根 CMakeLists 的 `add_subdirectory` 名必须与之一致 |
 | `board_cfg` | 绑定文件路径 | 仅首次生成模板；之后保留工程资产，不被覆盖 |
-| `tools_dir` | host 工具落点 | 相对 `dest`；默认 `tools`（即 `MySDK/tools`）。想放工程根写 `"../tools"` |
+| `tools_dir` | host 工具落点 | 相对 `dest`；推荐 `"../tools"`（即 `MySDK/tools`，与 `library/` 同级）。写 `"tools"` 则落在库目录内部，不建议 |
 | `[modules]` | 模块选择 | 写 `= true` 的模块，其 `depends` 由脚本递归补全；`external:*` 依赖跳过、由工程侧提供 |
 | `[tools]` | 工具选择 | 写 `= true` 的 id 从 `tools/` 镜像到 `<dest>/<tools_dir>`；`audience: maintainer` 的项没必要拉。id 写错直接报错并列出可用项 |
 
@@ -106,7 +106,10 @@ tools_dir = "tools"                 # host 工具落点（相对 dest；默认 t
 并引用 CubeMX 全局句柄（`&htim6`、`&hiwdg`、引脚宏）的地方。SDK 内部零绑定、板无关。
 
 > 布局约定：把 `sdk.toml` 与 `board_cfg.h` 放在 `MySDK/` **之外**（如 `User/`），
-> 因为 `MySDK/` 每次拉取会被整体清空重建。推荐结构见第 4 节。
+> 因为 `MySDK/library/` 每次拉取会被覆盖重建。工程根只放「手动拷贝 + CubeMX 生成 + 工程自写」
+> （`sdk_run.py` / `.gitignore` / `.vscode/` / `User/` / `Core/` / `Drivers/` / `Middlewares/` /
+> `cmake/` / `*.ioc` / `*.ld` / `CMakeLists.txt`），**所有拉取物一律关在 `MySDK/` 里**
+> （`library/` 固件、`tools/` host 工具）。判据：删掉 `MySDK/` 后 `pull` 能完整重建，根目录不受影响。
 
 #### RTOS / 裸机：只改 `board_cfg.h` 一行
 
@@ -143,13 +146,15 @@ python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --only lib
 拉取行为：
 1. 解析所选模块 `depends` 闭包（拓扑序）；引用了 manifest 不存在的模块直接报错退出。
 2. **先 `rmtree(dest)` 再整目录镜像** `library/<layer>/<module>/` → `dest/<layer>/<module>/`
-   （手动改 `MySDK/` 会被清空，要改只能改 SDK 源仓后重新拉取）。
+   （默认 `dest` = `MySDK/library`；手动改 `MySDK/library/` 会被清空，要改只能改 SDK 源仓后重新拉取）。
 3. 拷贝 SDK 载荷根 `library/CMakeLists.txt` → `dest/CMakeLists.txt`（组件构建脚本）；它就在各 layer 目录同级，故源仓内也能直接配置。
-4. 按 `[tools]` 把选中的 host 工具镜像到 `<dest>/<tools_dir>/`，并在该目录生成 `readme.md`（工具清单/子命令）
+4. 按 `[tools]` 把选中的 host 工具镜像到 `<dest>/<tools_dir>/`（默认 `MySDK/tools`），并在该目录生成 `readme.md`（工具清单/子命令）
    与 `_tools_sync.txt`（版本戳）；取消勾选的工具会被删掉，**非托管文件一律不动**。
-   工具落点若在 `dest` 内，孤儿清理会自动豁免它，不会被当模块删掉。
+   工具落点若落在 `dest` 内（`tools_dir = "tools"`），孤儿清理会自动豁免它，不会被当模块删掉。
 5. `board_cfg.h` 仅在「读取 1 字节确认不存在」时生成模板（避免云端盘在线占位误覆盖）。
 6. 写 `dest/_sdk_sync.txt` 戳（SDK 版本 / 时间 / 模块清单 / 工具清单 / 工具落点）。
+7. `dest` 下沉成 `.../library` 时，会检查父目录是否残留上一版「平铺」拉取物（`chip/` `devices/` 等），
+   **只列清单告警、不代删**——`dest` 之外的东西不替人删。
 
 ### 3. 接入编译
 
@@ -157,12 +162,12 @@ python <SDK根>/tools/sdk-pull.py <工程根>/User/sdk.toml --only lib
 
 ```cmake
 add_subdirectory(cmake/stm32cubemx)   # 先 CubeMX（提供 HAL/RTOS 头与 stm32cubemx 接口目标）
-add_subdirectory(MySDK)               # 必须在其后（SDK 会自动 link stm32cubemx）
+add_subdirectory(MySDK/library)       # 必须在其后（SDK 会自动 link stm32cubemx）
 # ...
 target_link_libraries(<主目标> PRIVATE mysdk)  # 链接 SDK 静态库
 ```
 
-SDK 的 `library/CMakeLists.txt`（拉取后即 `MySDK/CMakeLists.txt`）用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所有 `*/Src/*.c`
+SDK 的 `library/CMakeLists.txt`（拉取后即 `MySDK/library/CMakeLists.txt`）用 `GLOB_RECURSE ... CONFIGURE_DEPENDS` 收集所有 `*/Src/*.c`
 并 PUBLIC 导出各 `*/Inc`——**新增模块无需改清单**，下次构建自动重扫。
 非 CubeMX 工程需自行给 `mysdk` 注入 HAL 头路径与 `STM32Fxxx/USE_HAL_DRIVER` 宏。
 
@@ -189,7 +194,7 @@ Cortex-M 是绝对寻址，「一个位置」就对应「一份二进制」，�
 | `TP_MDC_B.bin` | `0x08080000` / 512K | 进 B 槽 |
 
 做法：逻辑全在 **SDK 侧** —— `library/services/ota_core/cmake/ota_slots.cmake`
-（随模块拉取到 `MySDK/services/ota_core/cmake/`），由 `<MySDK>/CMakeLists.txt` 末尾自动
+（随模块拉取到 `MySDK/library/services/ota_core/cmake/`），由 `MySDK/library/CMakeLists.txt` 末尾自动
 挂载。**工程根 `CMakeLists.txt` 不需要任何 OTA 槽相关内容**。
 
 `ota_slots.cmake` 内部：
@@ -295,6 +300,20 @@ OTA（`ymodem`）由设备自报目标槽，主机自动挑对应后缀的那份
   （本文件初版踩过：`.cache/`、`.vscode/*.log`、`*.ioc.broken` 三条全部没生效）。
 
 ## 版本变更记录
+### 工程镜像布局下沉一层：`MySDK/{library,tools}`（2026-11-17，v0.13.1）
+
+- **问题**：`dest = "../MySDK"` 让 5 个 layer 直接铺在 `MySDK/` 根，`tools/` 是唯一的子目录 ——
+  一眼分不出哪层是固件、哪层是 host 工具；且 `add_subdirectory(MySDK)` 把 `tools/`（无 CMake）
+  也纳入了子目录范围。
+- **新布局**：`dest = "../MySDK/library"`、`tools_dir = "../tools"`，即
+  `MySDK/library/`（固件子集，CMake 目标，与 SDK 仓库同名）+ `MySDK/tools/`（host 工具）同级。
+  工程根只留手动拷贝、CubeMX 生成与工程自写；判据是「删掉 `MySDK/` 后 `pull` 能完整重建」。
+- **代码零改动**：sdk-pull 的路径本就按 `dest/<layer>`、`dest/<tools_dir>` 推导；sdk_run 解析
+  `<dest>/<tools_dir>` 后仍落在 `MySDK/tools`。新增的只有旧布局残留告警（列清单、不代删）。
+- **工程侧**：`sdk.toml` 两行 + `add_subdirectory(MySDK)` → `add_subdirectory(MySDK/library)`。
+- **已迁移**：`myota-stm32/bootloader`；其余 6 个工程待迁（先 `pull` 生成 `MySDK/library/`，
+  再手动删 `MySDK/` 下的旧层目录与旧 `CMakeLists.txt`/`_sdk_sync.txt`）。
+
 ### host 工具改为「按配置拉取」（2026-11-17，v0.13.0）
 
 之前工具只能从唯一 SDK 检出里调：`sdk.toml` 的 `sdk` 一失效（目录搬家、删库、换机器），
